@@ -308,6 +308,7 @@ describe("BF-A08-01: Authentication, Session & Invitation Lifecycle", () => {
 
 describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
   let adminCookie;
+  let managerCookie;
   let cashierCookie;
   let serviceCookie;
   let warehouseCookie;
@@ -340,6 +341,7 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
       return extractCookie(regRes);
     }
 
+    managerCookie = await createStaff("Manager Mike", "manager@bidaflow.vn", "role_manager");
     cashierCookie = await createStaff("Cashier Bob", "cashier@bidaflow.vn", "role_cashier");
     serviceCookie = await createStaff("Service Alice", "service@bidaflow.vn", "role_service");
     warehouseCookie = await createStaff("Warehouse Dan", "warehouse@bidaflow.vn", "role_warehouse");
@@ -374,41 +376,114 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
     assert.equal(resApp.status, 401);
   });
 
-  test("CASHIER role permissions - can manage sessions & payments, cannot manage tables, prices, users or inventory", async () => {
+  test("ADMIN role has full system access and system admin role cannot be stripped of permissions", async () => {
+    // ADMIN can perform user management
+    const resInvite = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "user.invite", payload: { roleId: "role_cashier" },
+    }, adminCookie));
+    assert.equal(resInvite.status, 200);
+
+    // ADMIN override - even if role_permissions for role_admin is empty, ADMIN retains access
+    await server.getRawDb().prepare("DELETE FROM role_permissions WHERE role_id = 'role_admin'").run();
+    const resAdminAfter = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "user.invite", payload: { roleId: "role_service" },
+    }, adminCookie));
+    assert.equal(resAdminAfter.status, 200, "ADMIN must retain all permissions via roleCode override");
+
+    // Attempting to modify role_admin permissions via role.permissions is explicitly rejected
+    const resModifyAdmin = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "role.permissions", payload: { roleId: "role_admin", permissionCodes: [] },
+    }, adminCookie));
+    assert.equal(resModifyAdmin.status, 400);
+    const jsonModify = await resModifyAdmin.json();
+    assert.match(jsonModify.error, /Không thể giảm quyền của vai trò quản trị hệ thống/);
+  });
+
+  test("MANAGER role permissions - full operational management but subject to role_permissions without admin override", async () => {
     const table = await server.queryOne("SELECT id FROM billiard_tables WHERE code = 'T01'");
 
-    // Positive: CASHIER can start play session (SESSIONS_MANAGE)
+    // Positive: MANAGER can manage users, prices, areas, sessions, shifts, and inventory
+    const resInvite = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "user.invite", payload: { roleId: "role_cashier", email: "mgr_invitee@bidaflow.vn" },
+    }, managerCookie));
+    assert.equal(resInvite.status, 200, "MANAGER should be allowed to invite users");
+
+    const resArea = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "area.save", payload: { code: "ZONE_MGR", name: "Manager Zone" },
+    }, managerCookie));
+    assert.equal(resArea.status, 200, "MANAGER should be allowed to save areas");
+
+    const resStart = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "session.start", payload: { tableId: table.id },
+    }, managerCookie));
+    assert.equal(resStart.status, 200, "MANAGER should be allowed to start play session");
+
+    // Negative: MANAGER does NOT have hard-coded ADMIN override; if permission is removed from role_manager, access is forbidden
+    const mgrRole = await server.queryOne("SELECT id FROM roles WHERE code = 'MANAGER'");
+    // Remove USERS_MANAGE from role_manager
+    const userManagePerm = await server.queryOne("SELECT id FROM permissions WHERE code = 'USERS_MANAGE'");
+    await server.getRawDb().prepare("DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?")
+      .bind(mgrRole.id, userManagePerm.id).run();
+
+    const resInviteDenied = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "user.invite", payload: { roleId: "role_cashier" },
+    }, managerCookie));
+    assert.equal(resInviteDenied.status, 403, "MANAGER must be denied 403 if permission is removed");
+  });
+
+  test("CASHIER role permissions - positive and negative matrix verification", async () => {
+    const table = await server.queryOne("SELECT id FROM billiard_tables WHERE code = 'T01'");
+
+    // Positive: CASHIER can manage sessions (SESSIONS_MANAGE)
     const resStart = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
       action: "session.start", payload: { tableId: table.id },
     }, cashierCookie));
-    assert.equal(resStart.status, 200, "Cashier should be allowed to start play session");
+    assert.equal(resStart.status, 200);
 
-    // Negative: CASHIER cannot create areas (TABLES_MANAGE) -> 403
+    // Positive: CASHIER can manage shifts (SHIFTS_MANAGE)
+    const resShift = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "shift.open", payload: { openingCash: 500000 },
+    }, cashierCookie));
+    assert.equal(resShift.status, 200);
+
+    // Negative: CASHIER cannot manage tables/areas (TABLES_MANAGE) -> 403
     const resArea = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
       action: "area.save", payload: { code: "ZONE2", name: "Zone 2" },
     }, cashierCookie));
     assert.equal(resArea.status, 403);
 
-    // Negative: CASHIER cannot change pricing (PRICES_MANAGE) -> 403
+    // Negative: CASHIER cannot manage pricing (PRICES_MANAGE) -> 403
     const resPrice = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
       action: "price.save", payload: { tableTypeId: "type_any", name: "Peak", hourlyRate: 100000 },
     }, cashierCookie));
     assert.equal(resPrice.status, 403);
 
-    // Negative: CASHIER cannot invite users (USERS_MANAGE) -> 403
+    // Negative: CASHIER cannot invite/manage users (USERS_MANAGE) -> 403
     const resInvite = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
       action: "user.invite", payload: { roleId: "role_cashier" },
     }, cashierCookie));
     assert.equal(resInvite.status, 403);
 
-    // Negative: CASHIER cannot adjust stock (INVENTORY_MANAGE) -> 403
+    // Negative: CASHIER cannot manage inventory (INVENTORY_MANAGE) -> 403
     const resStock = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "inventory.move", payload: { productId: "prod_any", type: "IN", quantity: 10 },
+      action: "inventory.move", payload: { productId: "prod_any", type: "IN", quantity: 10, reason: "Test" },
     }, cashierCookie));
     assert.equal(resStock.status, 403);
+
+    // Negative: CASHIER cannot manage roles/permissions (ROLES_MANAGE) -> 403
+    const resRolePerm = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "role.permissions", payload: { roleId: "role_cashier", permissionCodes: [] },
+    }, cashierCookie));
+    assert.equal(resRolePerm.status, 403);
+
+    // Negative: CASHIER cannot configure membership tiers (MEMBERSHIPS_MANAGE) -> 403
+    const resTier = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "tier.save", payload: { code: "VIP1", name: "VIP 1", minPoints: 50, discountPercent: 5 },
+    }, cashierCookie));
+    assert.equal(resTier.status, 403);
   });
 
-  test("SERVICE role permissions - can view and operate tables/orders, cannot invoice or shift manage", async () => {
+  test("SERVICE role permissions - positive and negative matrix verification", async () => {
     const table = await server.queryOne("SELECT id FROM billiard_tables WHERE code = 'T01'");
 
     // Positive: SERVICE can update table status (TABLE_STATUS)
@@ -416,6 +491,12 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
       action: "table.status", payload: { id: table.id, status: "AVAILABLE" },
     }, serviceCookie));
     assert.equal(resStatus.status, 200);
+
+    // Positive: SERVICE can start session (SESSIONS_MANAGE)
+    const resStart = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "session.start", payload: { tableId: table.id },
+    }, serviceCookie));
+    assert.equal(resStart.status, 200);
 
     // Negative: SERVICE cannot manage shifts (SHIFTS_MANAGE) -> 403
     const resShift = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
@@ -428,14 +509,44 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
       action: "invoice.pay", payload: { invoiceId: "inv_any", method: "CASH", amount: 100000 },
     }, serviceCookie));
     assert.equal(resPay.status, 403);
+
+    // Negative: SERVICE cannot manage customers (CUSTOMERS_MANAGE) -> 403
+    const resCustomer = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "customer.save", payload: { code: "KH01", fullName: "Khách VIP" },
+    }, serviceCookie));
+    assert.equal(resCustomer.status, 403);
+
+    // Negative: SERVICE cannot manage inventory (INVENTORY_MANAGE) -> 403
+    const resStock = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "inventory.move", payload: { productId: "prod_any", type: "IN", quantity: 5, reason: "Test" },
+    }, serviceCookie));
+    assert.equal(resStock.status, 403);
+
+    // Negative: SERVICE cannot manage user accounts (USERS_MANAGE) -> 403
+    const resInvite = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "user.invite", payload: { roleId: "role_service" },
+    }, serviceCookie));
+    assert.equal(resInvite.status, 403);
   });
 
-  test("WAREHOUSE role permissions - can manage inventory and products, cannot access cashier/sessions", async () => {
-    // Positive: WAREHOUSE can create product category (PRODUCTS_MANAGE)
+  test("WAREHOUSE role permissions - positive and negative matrix verification", async () => {
+    // Positive: WAREHOUSE can create product category and products (PRODUCTS_MANAGE)
     const resCat = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
       action: "category.save", payload: { code: "DRINK", name: "Nước giải khát" },
     }, warehouseCookie));
     assert.equal(resCat.status, 200);
+
+    const resProd = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "product.save", payload: { code: "STING", name: "Nước Sting", salePrice: 15000, costPrice: 10000 },
+    }, warehouseCookie));
+    assert.equal(resProd.status, 200);
+
+    // Positive: WAREHOUSE can move inventory (INVENTORY_MANAGE)
+    const prod = await server.queryOne("SELECT id FROM products WHERE code = 'STING'");
+    const resMove = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "inventory.move", payload: { productId: prod.id, type: "IN", quantity: 24, reason: "Nhập két Sting" },
+    }, warehouseCookie));
+    assert.equal(resMove.status, 200);
 
     // Negative: WAREHOUSE cannot start session (SESSIONS_MANAGE) -> 403
     const table = await server.queryOne("SELECT id FROM billiard_tables WHERE code = 'T01'");
@@ -449,23 +560,24 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
       action: "tier.save", payload: { code: "GOLD", name: "Gold Tier", minPoints: 100, discountPercent: 10 },
     }, warehouseCookie));
     assert.equal(resTier.status, 403);
-  });
 
-  test("ADMIN override - ADMIN has all permissions even if not mapped in role_permissions table", async () => {
-    // Clear all entries in role_permissions for role_admin
-    await server.getRawDb().prepare("DELETE FROM role_permissions WHERE role_id = 'role_admin'").run();
+    // Negative: WAREHOUSE cannot create invoices (INVOICES_MANAGE) -> 403
+    const resInvoice = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "invoice.create", payload: { sessionId: "ses_any" },
+    }, warehouseCookie));
+    assert.equal(resInvoice.status, 403);
 
-    // ADMIN can still perform USERS_MANAGE
-    const resInvite = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "user.invite", payload: { roleId: "role_cashier" },
-    }, adminCookie));
-    assert.equal(resInvite.status, 200, "ADMIN must retain all permissions via role override");
+    // Negative: WAREHOUSE cannot create reservations (RESERVATIONS_MANAGE) -> 403
+    const resRes = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "reservation.save", payload: { tableId: table.id, customerName: "A", customerPhone: "0900000000", startsAt: "2026-10-15T18:00:00Z", endsAt: "2026-10-15T20:00:00Z" },
+    }, warehouseCookie));
+    assert.equal(resRes.status, 403);
   });
 
   test("Dynamic permission updates via role.permissions take effect immediately", async () => {
     // Initially CASHIER cannot manage inventory (INVENTORY_MANAGE)
     const resBefore = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "inventory.move", payload: { productId: "prod_any", type: "IN", quantity: 5 },
+      action: "inventory.move", payload: { productId: "prod_any", type: "IN", quantity: 5, reason: "Test" },
     }, cashierCookie));
     assert.equal(resBefore.status, 403);
 
@@ -488,29 +600,54 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
     assert.equal(resAfter.status, 200, "Updated role permissions should take effect immediately on next request");
   });
 
-  test("PROFILE_MANAGE permission protects profile.update and password.change", async () => {
-    // 1. Positive: User with PROFILE_MANAGE can update profile
+  test("Self-service profile update and password change - available to all authenticated roles with validation", async () => {
+    // 1. Any authenticated role (e.g. SERVICE) can update their own profile
     const resUpdate = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "profile.update", payload: { fullName: "Cashier Updated Name", phone: "0901234567" },
-    }, cashierCookie));
+      action: "profile.update", payload: { fullName: "Alice Service Lead", phone: "0987654321" },
+    }, serviceCookie));
     assert.equal(resUpdate.status, 200);
 
-    const updatedUser = await server.queryOne("SELECT full_name, phone FROM users WHERE email = 'cashier@bidaflow.vn'");
-    assert.equal(updatedUser.full_name, "Cashier Updated Name");
+    const updatedUser = await server.queryOne("SELECT full_name, phone FROM users WHERE email = 'service@bidaflow.vn'");
+    assert.equal(updatedUser.full_name, "Alice Service Lead");
+    assert.equal(updatedUser.phone, "0987654321");
 
-    // 2. Negative: Revoke PROFILE_MANAGE from role_cashier and test rejection
-    const cashierRole = await server.queryOne("SELECT id FROM roles WHERE code = 'CASHIER'");
-    const remainingPerms = (await server.queryAll("SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id WHERE rp.role_id = ?", cashierRole.id))
-      .map(r => r.code)
-      .filter(c => c !== "PROFILE_MANAGE");
+    // 2. Profile update validation: fullName is required
+    const resEmptyName = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "profile.update", payload: { fullName: "" },
+    }, serviceCookie));
+    assert.equal(resEmptyName.status, 400);
 
-    await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "role.permissions", payload: { roleId: cashierRole.id, permissionCodes: remainingPerms },
-    }, adminCookie));
+    // 3. Password change: wrong current password -> 400
+    const resWrongCurPass = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "password.change", payload: { currentPassword: "WrongPassword123!", newPassword: "BrandNewPassword123!" },
+    }, serviceCookie));
+    assert.equal(resWrongCurPass.status, 400);
+    const jsonWrongCur = await resWrongCurPass.json();
+    assert.match(jsonWrongCur.error, /Mật khẩu hiện tại không đúng/);
 
-    const resForbidden = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "profile.update", payload: { fullName: "Hacked Name" },
-    }, cashierCookie));
-    assert.equal(resForbidden.status, 403, "Must return 403 when user lacks PROFILE_MANAGE");
+    // 4. Password change: weak new password (< 10 chars, missing special char) -> 400
+    const resWeakPass = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "weak" },
+    }, serviceCookie));
+    assert.equal(resWeakPass.status, 400);
+    const jsonWeak = await resWeakPass.json();
+    assert.match(jsonWeak.error, /Mật khẩu mới cần ít nhất 10 ký tự/);
+
+    // 5. Password change: valid change succeeds
+    const resPassOk = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "BrandNewPassword123!" },
+    }, serviceCookie));
+    assert.equal(resPassOk.status, 200);
+
+    // 6. Login with new password succeeds, old password rejected
+    const resOldLogin = await loginRoute.POST(createJsonRequest("http://localhost:3000/api/auth/login", "POST", {
+      identity: "service@bidaflow.vn", password: "StrongPassword123!",
+    }));
+    assert.equal(resOldLogin.status, 401);
+
+    const resNewLogin = await loginRoute.POST(createJsonRequest("http://localhost:3000/api/auth/login", "POST", {
+      identity: "service@bidaflow.vn", password: "BrandNewPassword123!",
+    }));
+    assert.equal(resNewLogin.status, 200);
   });
 });

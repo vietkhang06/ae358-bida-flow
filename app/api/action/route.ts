@@ -50,7 +50,6 @@ export async function POST(request: Request) {
 
     switch (body.action) {
       case "profile.update": {
-        requireAny(user, ["PROFILE_MANAGE"]);
         const fullName = required(payload, "fullName", "Họ tên");
         const phone = optional(payload, "phone");
         await db.prepare("UPDATE users SET full_name=?, phone=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(fullName, phone, user.id).run();
@@ -58,7 +57,6 @@ export async function POST(request: Request) {
         break;
       }
       case "password.change": {
-        requireAny(user, ["PROFILE_MANAGE"]);
         const currentPassword = required(payload, "currentPassword", "Mật khẩu hiện tại");
         const newPassword = required(payload, "newPassword", "Mật khẩu mới");
         if (!validatePassword(newPassword)) throw new AppError("Mật khẩu mới cần ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.");
