@@ -650,4 +650,83 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
     }));
     assert.equal(resNewLogin.status, 200);
   });
+
+  test("Comprehensive 41-action unauthenticated guard: every action returns 401 when called without session", async () => {
+    const ALL_ACTIONS = [
+      "profile.update", "password.change", "user.invite", "user.update", "role.permissions",
+      "area.save", "area.delete", "tableType.save", "tableType.delete", "table.save", "table.delete",
+      "table.status", "price.save", "price.delete", "reservation.save", "reservation.status",
+      "session.start", "reservation.seat", "session.pause", "session.resume", "session.transfer", "session.end",
+      "category.save", "product.save", "product.delete", "order.add", "order.item.update", "order.item.status",
+      "customer.save", "tier.save", "membership.save", "invoice.create", "invoice.adjust", "invoice.pay",
+      "invoice.cancel", "invoice.split", "invoice.merge", "inventory.move", "stock.count", "shift.open", "shift.close"
+    ];
+
+    assert.equal(ALL_ACTIONS.length, 41, "Must contain all 41 actions defined in the system");
+
+    for (const actionName of ALL_ACTIONS) {
+      const res = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+        action: actionName, payload: {},
+      }));
+      assert.equal(res.status, 401, `Action ${actionName} must return 401 when unauthenticated`);
+      const body = await res.json();
+      assert.match(body.error, /Bạn cần đăng nhập để tiếp tục/, `Action ${actionName} must return standard 401 error message`);
+    }
+  });
+
+  test("Comprehensive negative matrix: every permission-gated action returns 403 when called by unauthorized role", async () => {
+    // Mapping of every permission-gated action to an unauthorized role cookie to test
+    const UNAUTHORIZED_ROLE_CALLS = [
+      { action: "user.invite", cookie: cashierCookie, deniedRole: "CASHIER", perm: "USERS_MANAGE" },
+      { action: "user.update", cookie: cashierCookie, deniedRole: "CASHIER", perm: "USERS_MANAGE" },
+      { action: "role.permissions", cookie: cashierCookie, deniedRole: "CASHIER", perm: "ROLES_MANAGE" },
+      { action: "area.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "TABLES_MANAGE" },
+      { action: "area.delete", cookie: cashierCookie, deniedRole: "CASHIER", perm: "TABLES_MANAGE" },
+      { action: "tableType.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRICES_MANAGE" },
+      { action: "tableType.delete", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRICES_MANAGE" },
+      { action: "table.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "TABLES_MANAGE" },
+      { action: "table.delete", cookie: cashierCookie, deniedRole: "CASHIER", perm: "TABLES_MANAGE" },
+      { action: "table.status", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "TABLE_STATUS" },
+      { action: "price.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRICES_MANAGE" },
+      { action: "price.delete", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRICES_MANAGE" },
+      { action: "reservation.save", cookie: serviceCookie, deniedRole: "SERVICE", perm: "RESERVATIONS_MANAGE" },
+      { action: "reservation.status", cookie: serviceCookie, deniedRole: "SERVICE", perm: "RESERVATIONS_MANAGE" },
+      { action: "session.start", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "reservation.seat", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "session.pause", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "session.resume", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "session.transfer", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "session.end", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "SESSIONS_MANAGE" },
+      { action: "category.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRODUCTS_MANAGE" },
+      { action: "product.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRODUCTS_MANAGE" },
+      { action: "product.delete", cookie: cashierCookie, deniedRole: "CASHIER", perm: "PRODUCTS_MANAGE" },
+      { action: "order.add", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "ORDERS_MANAGE" },
+      { action: "order.item.update", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "ORDERS_MANAGE" },
+      { action: "order.item.status", cookie: warehouseCookie, deniedRole: "WAREHOUSE", perm: "ORDERS_MANAGE" },
+      { action: "customer.save", cookie: serviceCookie, deniedRole: "SERVICE", perm: "CUSTOMERS_MANAGE" },
+      { action: "tier.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "MEMBERSHIPS_MANAGE" },
+      { action: "membership.save", cookie: cashierCookie, deniedRole: "CASHIER", perm: "MEMBERSHIPS_MANAGE" },
+      { action: "invoice.create", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVOICES_MANAGE" },
+      { action: "invoice.adjust", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVOICES_MANAGE" },
+      { action: "invoice.pay", cookie: serviceCookie, deniedRole: "SERVICE", perm: "PAYMENTS_MANAGE" },
+      { action: "invoice.cancel", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVOICES_MANAGE" },
+      { action: "invoice.split", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVOICES_MANAGE" },
+      { action: "invoice.merge", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVOICES_MANAGE" },
+      { action: "inventory.move", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVENTORY_MANAGE" },
+      { action: "stock.count", cookie: serviceCookie, deniedRole: "SERVICE", perm: "INVENTORY_MANAGE" },
+      { action: "shift.open", cookie: serviceCookie, deniedRole: "SERVICE", perm: "SHIFTS_MANAGE" },
+      { action: "shift.close", cookie: serviceCookie, deniedRole: "SERVICE", perm: "SHIFTS_MANAGE" },
+    ];
+
+    assert.equal(UNAUTHORIZED_ROLE_CALLS.length, 39, "All 39 permission-gated actions must be verified for 403 denial");
+
+    for (const testItem of UNAUTHORIZED_ROLE_CALLS) {
+      const res = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
+        action: testItem.action, payload: {},
+      }, testItem.cookie));
+      assert.equal(res.status, 403, `Action ${testItem.action} (requires ${testItem.perm}) must return 403 when called by ${testItem.deniedRole}`);
+      const body = await res.json();
+      assert.match(body.error, /Bạn không có quyền thực hiện thao tác này/, `Action ${testItem.action} must return standard 403 forbidden message`);
+    }
+  });
 });
