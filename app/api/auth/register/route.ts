@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       const inviteCode = String(body.invitationCode ?? "").trim();
       if (!inviteCode) throw new AppError("Bạn cần mã mời do quản lý cung cấp.", 403);
       const invitation = await queryOne<{ id: string; role_id: string; email: string | null }>(
-        "SELECT id, role_id, email FROM invitations WHERE code_hash = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
+        "SELECT id, role_id, email FROM invitations WHERE code_hash = ? AND used_at IS NULL AND datetime(expires_at) > datetime('now')",
         await sha256Hex(inviteCode),
       );
       if (!invitation || (invitation.email && normalizeEmail(invitation.email) !== email)) throw new AppError("Mã mời không hợp lệ hoặc đã hết hạn.", 403);
