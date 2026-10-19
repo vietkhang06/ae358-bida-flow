@@ -4,7 +4,10 @@ import path from "node:path";
 
 export function createMockD1() {
   const sqlite = new DatabaseSync(":memory:");
-  const schemaPath = path.resolve(import.meta.dirname, "../../drizzle/0000_natural_silvermane.sql");
+  const schemaPath = path.resolve(
+    import.meta.dirname,
+    "../../drizzle/0000_natural_silvermane.sql",
+  );
   const schemaSql = fs.readFileSync(schemaPath, "utf8");
   sqlite.exec(schemaSql);
 
@@ -17,17 +20,20 @@ export function createMockD1() {
       },
       async first() {
         const stmt = sqlite.prepare(query);
-        const row = stmt.get(...boundParams);
+        const normalized = boundParams.map((p) => (p === undefined ? null : p));
+        const row = stmt.get(...normalized);
         return row ?? null;
       },
       async all() {
         const stmt = sqlite.prepare(query);
-        const results = stmt.all(...boundParams);
+        const normalized = boundParams.map((p) => (p === undefined ? null : p));
+        const results = stmt.all(...normalized);
         return { results: results ?? [] };
       },
       async run() {
         const stmt = sqlite.prepare(query);
-        const info = stmt.run(...boundParams);
+        const normalized = boundParams.map((p) => (p === undefined ? null : p));
+        const info = stmt.run(...normalized);
         return { success: true, meta: { changes: info.changes } };
       },
     };
