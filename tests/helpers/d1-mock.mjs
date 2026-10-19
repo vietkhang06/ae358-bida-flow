@@ -4,7 +4,10 @@ import path from "node:path";
 
 export function createMockD1() {
   const sqlite = new DatabaseSync(":memory:");
-  const schemaPath = path.resolve(import.meta.dirname, "../../drizzle/0000_natural_silvermane.sql");
+  const schemaPath = path.resolve(
+    import.meta.dirname,
+    "../../drizzle/0000_natural_silvermane.sql",
+  );
   const schemaSql = fs.readFileSync(schemaPath, "utf8");
   sqlite.exec(schemaSql);
 
