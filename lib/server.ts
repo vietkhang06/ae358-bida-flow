@@ -1,3 +1,4 @@
+import { billableSeconds, segmentAmount } from "@/lib/play-time";
 import { env } from "cloudflare:workers";
 
 export type AppUser = {
@@ -119,6 +120,7 @@ export function validatePassword(value: string) {
 
 export async function ensureSystemCatalog() {
   const db = getRawDb();
+  const existingRoles = new Set((await queryAll<{ id: string }>("SELECT id FROM roles")).map((role) => role.id));
   const statements: D1PreparedStatement[] = [];
   for (const [roleId, roleCode, name, description] of ROLES) {
     statements.push(db.prepare("INSERT OR IGNORE INTO roles (id, code, name, description, is_system) VALUES (?, ?, ?, ?, 1)").bind(roleId, roleCode, name, description));
@@ -127,6 +129,7 @@ export async function ensureSystemCatalog() {
     statements.push(db.prepare("INSERT OR IGNORE INTO permissions (id, code, name, module) VALUES (?, ?, ?, ?)").bind(`perm_${permissionCode.toLowerCase()}`, permissionCode, name, module));
   }
   for (const [roleId, roleCode] of ROLES) {
+    if (existingRoles.has(roleId)) continue;
     for (const permissionCode of ROLE_PERMISSIONS[roleCode]) {
       statements.push(db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").bind(roleId, `perm_${permissionCode.toLowerCase()}`));
     }
@@ -136,7 +139,7 @@ export async function ensureSystemCatalog() {
 
 function cookieValue(request: Request, name: string) {
   const pair = (request.headers.get("cookie") ?? "").split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`));
-  return pair ? decodeURIComponent(pair.slice(name.length + 1)) : null;
+  try { return pair ? decodeURIComponent(pair.slice(name.length + 1)) : null; } catch { return null; }
 }
 
 export function authCookie(token: string) {
@@ -230,27 +233,29 @@ export async function activeHourlyRate(tableId: string, at = new Date()) {
   const rules = await queryAll<{ hourly_rate: number; days_mask: number; start_minute: number; end_minute: number }>(`
     SELECT hourly_rate, days_mask, start_minute, end_minute FROM price_rules
     WHERE table_type_id = ? AND active = 1
-      AND (effective_from IS NULL OR effective_from <= ?) AND (effective_to IS NULL OR effective_to >= ?)
+      AND (effective_from IS NULL OR julianday(effective_from) <= julianday(?)) AND (effective_to IS NULL OR julianday(effective_to) > julianday(?))
     ORDER BY priority DESC, created_at DESC
   `, table.table_type_id, at.toISOString(), at.toISOString());
   const matching = rules.find((rule) => (rule.days_mask & (1 << dayIndex)) !== 0 && minuteOfDay >= rule.start_minute && minuteOfDay < rule.end_minute);
   return matching?.hourly_rate ?? table.base_hourly_rate;
 }
 
-export async function calculateSessionAmount(sessionId: string, endAt = new Date()) {
+export async function sessionTiming(sessionId: string, endAt = new Date()) {
   const segments = await queryAll<{ id: string; started_at: string; ended_at: string | null; hourly_rate: number }>(
     "SELECT id, started_at, ended_at, hourly_rate FROM session_segments WHERE session_id = ? ORDER BY started_at", sessionId,
   );
-  let total = 0;
+  const pauses = await queryAll<{ segment_id: string; started_at: string; ended_at: string | null }>(
+    "SELECT segment_id, started_at, ended_at FROM session_pauses WHERE session_id = ?", sessionId,
+  );
+  let seconds = 0, amount = 0;
   for (const segment of segments) {
-    const stop = segment.ended_at ? new Date(segment.ended_at) : endAt;
-    const pauses = await queryAll<{ started_at: string; ended_at: string | null }>("SELECT started_at, ended_at FROM session_pauses WHERE segment_id = ?", segment.id);
-    const pausedSeconds = pauses.reduce((sum, pause) => {
-      const pauseEnd = pause.ended_at ? new Date(pause.ended_at) : stop;
-      return sum + Math.max(0, (pauseEnd.getTime() - new Date(pause.started_at).getTime()) / 1000);
-    }, 0);
-    const activeSeconds = Math.max(0, (stop.getTime() - new Date(segment.started_at).getTime()) / 1000 - pausedSeconds);
-    total += Math.round(Math.ceil(activeSeconds / 60) * segment.hourly_rate / 60);
+    const active = billableSeconds(segment, pauses.filter((pause) => pause.segment_id === segment.id), endAt);
+    seconds += active;
+    amount += segmentAmount(active, segment.hourly_rate);
   }
-  return total;
+  return { seconds, amount, sampledAt: endAt.toISOString() };
+}
+
+export async function calculateSessionAmount(sessionId: string, endAt = new Date()) {
+  return (await sessionTiming(sessionId, endAt)).amount;
 }

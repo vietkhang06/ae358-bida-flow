@@ -619,7 +619,7 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
 
     // 3. Password change: wrong current password -> 400
     const resWrongCurPass = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "password.change", payload: { currentPassword: "WrongPassword123!", newPassword: "BrandNewPassword123!" },
+      action: "password.change", payload: { currentPassword: "WrongPassword123!", newPassword: "BrandNewPassword123!", confirmPassword: "BrandNewPassword123!" },
     }, serviceCookie));
     assert.equal(resWrongCurPass.status, 400);
     const jsonWrongCur = await resWrongCurPass.json();
@@ -627,7 +627,7 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
 
     // 4. Password change: weak new password (< 10 chars, missing special char) -> 400
     const resWeakPass = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "weak" },
+      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "weak", confirmPassword: "weak" },
     }, serviceCookie));
     assert.equal(resWeakPass.status, 400);
     const jsonWeak = await resWeakPass.json();
@@ -635,7 +635,7 @@ describe("BF-A08-02: Server-Side Role-Based Access Control (RBAC)", () => {
 
     // 5. Password change: valid change succeeds
     const resPassOk = await actionRoute.POST(createJsonRequest("http://localhost:3000/api/action", "POST", {
-      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "BrandNewPassword123!" },
+      action: "password.change", payload: { currentPassword: "StrongPassword123!", newPassword: "BrandNewPassword123!", confirmPassword: "BrandNewPassword123!" },
     }, serviceCookie));
     assert.equal(resPassOk.status, 200);
 
