@@ -1,5 +1,6 @@
+import { executeOperation, operationPermissions } from "@/lib/operations";
 import {
-  AppError, activeHourlyRate, assertSameOrigin, audit, calculateSessionAmount, code, getRawDb,
+  AppError, assertSameOrigin, audit, code, getRawDb,
   hashPassword, id, normalizeEmail, nowIso, queryAll, queryOne, randomToken, requireUser,
   responseError, sha256Hex, validatePassword, verifyPassword,
 } from "@/lib/server";
@@ -32,22 +33,20 @@ async function recalculateInvoice(invoiceId: string) {
   return total;
 }
 
-async function closeSegment(segmentId: string, sessionId: string, endAt: string) {
-  await getRawDb().prepare("UPDATE session_pauses SET ended_at = ? WHERE segment_id = ? AND ended_at IS NULL").bind(endAt, segmentId).run();
-  await getRawDb().prepare("UPDATE session_segments SET ended_at = ? WHERE id = ? AND ended_at IS NULL").bind(endAt, segmentId).run();
-  const amount = await calculateSessionAmount(sessionId, new Date(endAt));
-  return amount;
-}
-
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const user = await requireUser(request);
-    const body = await request.json() as Body;
+    let body: Body;
+    try { body = await request.json() as Body; } catch { throw new AppError("JSON không hợp lệ."); }
+    if (!body || typeof body.action !== "string" || (body.payload !== undefined && (!body.payload || typeof body.payload !== "object" || Array.isArray(body.payload)))) throw new AppError("Yêu cầu không hợp lệ.");
     const payload = body.payload ?? {};
     const db = getRawDb();
     let result: unknown = null;
 
+    if (Object.hasOwn(operationPermissions, body.action)) {
+      return Response.json({ ok: true, data: await executeOperation(body.action, payload, user, request) });
+    }
     switch (body.action) {
       case "profile.update": {
         const fullName = required(payload, "fullName", "Họ tên");
@@ -59,6 +58,7 @@ export async function POST(request: Request) {
       case "password.change": {
         const currentPassword = required(payload, "currentPassword", "Mật khẩu hiện tại");
         const newPassword = required(payload, "newPassword", "Mật khẩu mới");
+        if (value(payload, "confirmPassword") !== newPassword) throw new AppError("Hai mật khẩu mới không trùng nhau.");
         if (!validatePassword(newPassword)) throw new AppError("Mật khẩu mới cần ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.");
         const account = await queryOne<{ password_hash: string; password_salt: string }>("SELECT password_hash, password_salt FROM users WHERE id=?", user.id);
         if (!account || !(await verifyPassword(currentPassword, account.password_salt, account.password_hash))) throw new AppError("Mật khẩu hiện tại không đúng.");
@@ -103,306 +103,6 @@ export async function POST(request: Request) {
         await audit(request, user.id, "ROLE_PERMISSIONS_UPDATED", "ROLE", roleId, "Cập nhật quyền vai trò", { permissionCodes });
         break;
       }
-      case "area.save": {
-        requireAny(user, ["TABLES_MANAGE"]);
-        const areaId = optional(payload, "id") ?? id("area");
-        const areaCode = required(payload, "code", "Mã khu vực").toUpperCase();
-        const name = required(payload, "name", "Tên khu vực");
-        if (payload.id) await db.prepare("UPDATE areas SET code=?, name=?, description=?, sort_order=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(areaCode, name, optional(payload, "description"), numberValue(payload, "sortOrder"), areaId).run();
-        else await db.prepare("INSERT INTO areas (id, code, name, description, sort_order) VALUES (?, ?, ?, ?, ?)").bind(areaId, areaCode, name, optional(payload, "description"), numberValue(payload, "sortOrder")).run();
-        await audit(request, user.id, "AREA_SAVED", "AREA", areaId, `Lưu khu vực ${name}`);
-        break;
-      }
-      case "area.delete": {
-        requireAny(user, ["TABLES_MANAGE"]);
-        const areaId = required(payload, "id", "Khu vực");
-        if (await queryOne("SELECT id FROM billiard_tables WHERE area_id=? AND active=1 LIMIT 1", areaId)) throw new AppError("Không thể xóa khu vực đang chứa bàn hoạt động.");
-        await db.prepare("UPDATE areas SET active=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(areaId).run();
-        await audit(request, user.id, "AREA_DELETED", "AREA", areaId, "Ngừng sử dụng khu vực");
-        break;
-      }
-      case "tableType.save": {
-        requireAny(user, ["PRICES_MANAGE"]);
-        const typeId = optional(payload, "id") ?? id("type");
-        const rate = numberValue(payload, "baseHourlyRate");
-        if (rate < 0) throw new AppError("Đơn giá không được âm.");
-        const typeCode = required(payload, "code", "Mã loại bàn").toUpperCase();
-        const name = required(payload, "name", "Tên loại bàn");
-        if (payload.id) await db.prepare("UPDATE table_types SET code=?, name=?, description=?, base_hourly_rate=?, color=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(typeCode, name, optional(payload, "description"), rate, value(payload, "color") || "#16a085", typeId).run();
-        else await db.prepare("INSERT INTO table_types (id, code, name, description, base_hourly_rate, color) VALUES (?, ?, ?, ?, ?, ?)").bind(typeId, typeCode, name, optional(payload, "description"), rate, value(payload, "color") || "#16a085").run();
-        await audit(request, user.id, "TABLE_TYPE_SAVED", "TABLE_TYPE", typeId, `Lưu loại bàn ${name}`);
-        break;
-      }
-      case "tableType.delete": {
-        requireAny(user, ["PRICES_MANAGE"]);
-        const typeId = required(payload, "id", "Loại bàn");
-        if (await queryOne("SELECT id FROM billiard_tables WHERE table_type_id=? AND active=1 LIMIT 1", typeId)) throw new AppError("Loại bàn đang được sử dụng.");
-        await db.prepare("UPDATE table_types SET active=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(typeId).run();
-        await audit(request, user.id, "TABLE_TYPE_DELETED", "TABLE_TYPE", typeId, "Ngừng sử dụng loại bàn");
-        break;
-      }
-      case "table.save": {
-        requireAny(user, ["TABLES_MANAGE"]);
-        const tableId = optional(payload, "id") ?? id("tbl");
-        const tableCode = required(payload, "code", "Mã bàn").toUpperCase();
-        const name = required(payload, "name", "Tên bàn");
-        const areaId = required(payload, "areaId", "Khu vực");
-        const tableTypeId = required(payload, "tableTypeId", "Loại bàn");
-        if (payload.id) await db.prepare("UPDATE billiard_tables SET code=?, name=?, area_id=?, table_type_id=?, notes=?, sort_order=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-          .bind(tableCode, name, areaId, tableTypeId, optional(payload, "notes"), numberValue(payload, "sortOrder"), tableId).run();
-        else await db.prepare("INSERT INTO billiard_tables (id, code, name, area_id, table_type_id, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)")
-          .bind(tableId, tableCode, name, areaId, tableTypeId, optional(payload, "notes"), numberValue(payload, "sortOrder")).run();
-        await audit(request, user.id, "TABLE_SAVED", "BILLIARD_TABLE", tableId, `Lưu bàn ${name}`);
-        break;
-      }
-      case "table.delete": {
-        requireAny(user, ["TABLES_MANAGE"]);
-        const tableId = required(payload, "id", "Bàn");
-        if (await queryOne("SELECT id FROM play_sessions WHERE table_id=? AND status IN ('ACTIVE','PAUSED')", tableId)) throw new AppError("Không thể xóa bàn đang có phiên chơi.");
-        if (await queryOne(`SELECT i.id FROM invoices i JOIN play_sessions ps ON ps.id=i.session_id WHERE ps.table_id=? AND i.status IN ('DRAFT','ISSUED') LIMIT 1`, tableId)) throw new AppError("Bàn còn hóa đơn chưa hoàn tất.");
-        await db.prepare("UPDATE billiard_tables SET active=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(tableId).run();
-        await audit(request, user.id, "TABLE_DELETED", "BILLIARD_TABLE", tableId, "Ngừng sử dụng bàn");
-        break;
-      }
-      case "table.status": {
-        requireAny(user, ["TABLE_STATUS"]);
-        const tableId = required(payload, "id", "Bàn");
-        const status = required(payload, "status", "Trạng thái");
-        if (!new Set(["AVAILABLE", "RESERVED", "MAINTENANCE"]).has(status)) throw new AppError("Trạng thái bàn không hợp lệ.");
-        if (await queryOne("SELECT id FROM play_sessions WHERE table_id=? AND status IN ('ACTIVE','PAUSED')", tableId)) throw new AppError("Không thể đổi thủ công trạng thái của bàn đang chơi.");
-        await db.prepare("UPDATE billiard_tables SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(status, tableId).run();
-        await audit(request, user.id, "TABLE_STATUS_CHANGED", "BILLIARD_TABLE", tableId, `Cập nhật trạng thái bàn thành ${status}`);
-        break;
-      }
-      case "price.save": {
-        requireAny(user, ["PRICES_MANAGE"]);
-        const ruleId = optional(payload, "id") ?? id("price");
-        const tableTypeId = required(payload, "tableTypeId", "Loại bàn");
-        const daysMask = numberValue(payload, "daysMask") || 127;
-        const startMinute = numberValue(payload, "startMinute");
-        const endMinute = numberValue(payload, "endMinute") || 1440;
-        const priority = numberValue(payload, "priority");
-        const hourlyRate = numberValue(payload, "hourlyRate");
-        if (hourlyRate < 0 || startMinute < 0 || endMinute > 1440 || startMinute >= endMinute) throw new AppError("Khung giờ hoặc đơn giá không hợp lệ.");
-        const overlap = await queryOne("SELECT id FROM price_rules WHERE table_type_id=? AND active=1 AND id<>? AND priority=? AND (days_mask & ?)<>0 AND start_minute < ? AND end_minute > ?", tableTypeId, ruleId, priority, daysMask, endMinute, startMinute);
-        if (overlap) throw new AppError("Khung giá bị chồng lấn với quy tắc cùng độ ưu tiên.");
-        const params = [tableTypeId, required(payload, "name", "Tên bảng giá"), daysMask, startMinute, endMinute, hourlyRate, priority, optional(payload, "effectiveFrom"), optional(payload, "effectiveTo")];
-        if (payload.id) await db.prepare("UPDATE price_rules SET table_type_id=?, name=?, days_mask=?, start_minute=?, end_minute=?, hourly_rate=?, priority=?, effective_from=?, effective_to=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(...params, ruleId).run();
-        else await db.prepare("INSERT INTO price_rules (id, table_type_id, name, days_mask, start_minute, end_minute, hourly_rate, priority, effective_from, effective_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(ruleId, ...params).run();
-        await audit(request, user.id, "PRICE_RULE_SAVED", "PRICE_RULE", ruleId, "Lưu quy tắc bảng giá");
-        break;
-      }
-      case "price.delete": {
-        requireAny(user, ["PRICES_MANAGE"]);
-        const ruleId = required(payload, "id", "Bảng giá");
-        await db.prepare("UPDATE price_rules SET active=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ruleId).run();
-        await audit(request, user.id, "PRICE_RULE_DELETED", "PRICE_RULE", ruleId, "Ngừng áp dụng bảng giá");
-        break;
-      }
-      case "reservation.save": {
-        requireAny(user, ["RESERVATIONS_MANAGE"]);
-        const reservationId = optional(payload, "id") ?? id("res");
-        const tableId = required(payload, "tableId", "Bàn");
-        const startsAt = required(payload, "startsAt", "Thời gian bắt đầu");
-        const endsAt = required(payload, "endsAt", "Thời gian kết thúc");
-        if (new Date(startsAt) >= new Date(endsAt)) throw new AppError("Thời gian kết thúc phải sau thời gian bắt đầu.");
-        const conflict = await queryOne(`SELECT id FROM reservations WHERE table_id=? AND id<>? AND status IN ('PENDING','CONFIRMED') AND starts_at < ? AND ends_at > ?`, tableId, reservationId, endsAt, startsAt);
-        if (conflict) throw new AppError("Bàn đã có lịch đặt trùng khoảng thời gian này.");
-        const args = [optional(payload, "customerId"), required(payload, "customerName", "Tên khách"), required(payload, "customerPhone", "Số điện thoại"), tableId, startsAt, endsAt, Math.max(1, numberValue(payload, "guestCount")), value(payload, "status") || "PENDING", optional(payload, "notes")];
-        if (payload.id) await db.prepare("UPDATE reservations SET customer_id=?, customer_name=?, customer_phone=?, table_id=?, starts_at=?, ends_at=?, guest_count=?, status=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(...args, reservationId).run();
-        else await db.prepare("INSERT INTO reservations (id, code, customer_id, customer_name, customer_phone, table_id, starts_at, ends_at, guest_count, status, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(reservationId, code("DB"), ...args, user.id).run();
-        await audit(request, user.id, "RESERVATION_SAVED", "RESERVATION", reservationId, "Lưu lịch đặt bàn");
-        break;
-      }
-      case "reservation.status": {
-        requireAny(user, ["RESERVATIONS_MANAGE"]);
-        const reservationId = required(payload, "id", "Lịch đặt");
-        const status = required(payload, "status", "Trạng thái");
-        if (!new Set(["PENDING", "CONFIRMED", "CANCELLED", "NO_SHOW"]).has(status)) throw new AppError("Trạng thái lịch đặt không hợp lệ.");
-        await db.prepare("UPDATE reservations SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status<>'SEATED'").bind(status, reservationId).run();
-        await audit(request, user.id, "RESERVATION_STATUS_CHANGED", "RESERVATION", reservationId, `Cập nhật lịch đặt thành ${status}`);
-        break;
-      }
-      case "session.start":
-      case "reservation.seat": {
-        requireAny(user, ["SESSIONS_MANAGE"]);
-        const reservation = body.action === "reservation.seat" ? await queryOne<{ id: string; table_id: string; customer_id: string | null; status: string }>("SELECT id, table_id, customer_id, status FROM reservations WHERE id=?", required(payload, "reservationId", "Lịch đặt")) : null;
-        if (reservation && !["PENDING", "CONFIRMED"].includes(reservation.status)) throw new AppError("Lịch đặt không còn hiệu lực.");
-        const tableId = reservation?.table_id ?? required(payload, "tableId", "Bàn");
-        const table = await queryOne<{ status: string }>("SELECT status FROM billiard_tables WHERE id=? AND active=1", tableId);
-        if (!table || !["AVAILABLE", "RESERVED"].includes(table.status)) throw new AppError("Bàn không sẵn sàng để mở phiên.");
-        const startedAt = nowIso();
-        const sessionId = id("play");
-        const segmentId = id("seg");
-        const rate = await activeHourlyRate(tableId, new Date(startedAt));
-        const statements = [
-          db.prepare("INSERT INTO play_sessions (id, code, table_id, customer_id, reservation_id, started_at, opened_by, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(sessionId, code("PS"), tableId, reservation?.customer_id ?? optional(payload, "customerId"), reservation?.id ?? null, startedAt, user.id, optional(payload, "notes")),
-          db.prepare("INSERT INTO session_segments (id, session_id, table_id, started_at, hourly_rate) VALUES (?, ?, ?, ?, ?)").bind(segmentId, sessionId, tableId, startedAt, rate),
-          db.prepare("UPDATE billiard_tables SET status='PLAYING', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(tableId),
-        ];
-        if (reservation) statements.push(db.prepare("UPDATE reservations SET status='SEATED', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reservation.id));
-        await db.batch(statements);
-        await audit(request, user.id, "SESSION_STARTED", "PLAY_SESSION", sessionId, "Mở bàn và bắt đầu phiên chơi", { tableId, rate });
-        result = { sessionId };
-        break;
-      }
-      case "session.pause": {
-        requireAny(user, ["SESSIONS_MANAGE"]);
-        const sessionId = required(payload, "sessionId", "Phiên chơi");
-        const session = await queryOne<{ status: string }>("SELECT status FROM play_sessions WHERE id=?", sessionId);
-        if (!session || session.status !== "ACTIVE") throw new AppError("Chỉ có thể tạm dừng phiên đang chạy.");
-        const segment = await queryOne<{ id: string }>("SELECT id FROM session_segments WHERE session_id=? AND ended_at IS NULL ORDER BY started_at DESC", sessionId);
-        if (!segment) throw new AppError("Không tìm thấy đoạn tính giờ đang hoạt động.");
-        await db.batch([
-          db.prepare("INSERT INTO session_pauses (id, session_id, segment_id, started_at, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)").bind(id("pause"), sessionId, segment.id, nowIso(), optional(payload, "reason"), user.id),
-          db.prepare("UPDATE play_sessions SET status='PAUSED', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sessionId),
-        ]);
-        await audit(request, user.id, "SESSION_PAUSED", "PLAY_SESSION", sessionId, "Tạm dừng phiên chơi", { reason: optional(payload, "reason") });
-        break;
-      }
-      case "session.resume": {
-        requireAny(user, ["SESSIONS_MANAGE"]);
-        const sessionId = required(payload, "sessionId", "Phiên chơi");
-        const session = await queryOne<{ status: string }>("SELECT status FROM play_sessions WHERE id=?", sessionId);
-        if (!session || session.status !== "PAUSED") throw new AppError("Phiên chơi không ở trạng thái tạm dừng.");
-        await db.batch([
-          db.prepare("UPDATE session_pauses SET ended_at=? WHERE session_id=? AND ended_at IS NULL").bind(nowIso(), sessionId),
-          db.prepare("UPDATE play_sessions SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sessionId),
-        ]);
-        await audit(request, user.id, "SESSION_RESUMED", "PLAY_SESSION", sessionId, "Tiếp tục phiên chơi");
-        break;
-      }
-      case "session.transfer": {
-        requireAny(user, ["SESSIONS_MANAGE"]);
-        const sessionId = required(payload, "sessionId", "Phiên chơi");
-        const toTableId = required(payload, "toTableId", "Bàn đích");
-        const session = await queryOne<{ table_id: string; status: string }>("SELECT table_id, status FROM play_sessions WHERE id=?", sessionId);
-        if (!session || !["ACTIVE", "PAUSED"].includes(session.status)) throw new AppError("Phiên chơi không thể chuyển bàn.");
-        const destination = await queryOne<{ status: string }>("SELECT status FROM billiard_tables WHERE id=? AND active=1", toTableId);
-        if (!destination || destination.status !== "AVAILABLE") throw new AppError("Bàn đích không khả dụng.");
-        const segment = await queryOne<{ id: string }>("SELECT id FROM session_segments WHERE session_id=? AND ended_at IS NULL ORDER BY started_at DESC", sessionId);
-        if (!segment) throw new AppError("Không tìm thấy đoạn tính giờ.");
-        const transferredAt = nowIso();
-        await closeSegment(segment.id, sessionId, transferredAt);
-        const rate = await activeHourlyRate(toTableId, new Date(transferredAt));
-        await db.batch([
-          db.prepare("UPDATE billiard_tables SET status='AVAILABLE', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(session.table_id),
-          db.prepare("UPDATE billiard_tables SET status='PLAYING', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(toTableId),
-          db.prepare("UPDATE play_sessions SET table_id=?, status='ACTIVE', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(toTableId, sessionId),
-          db.prepare("INSERT INTO session_segments (id, session_id, table_id, started_at, hourly_rate) VALUES (?, ?, ?, ?, ?)").bind(id("seg"), sessionId, toTableId, transferredAt, rate),
-          db.prepare("INSERT INTO table_transfers (id, session_id, from_table_id, to_table_id, transferred_at, transferred_by, reason) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id("move"), sessionId, session.table_id, toTableId, transferredAt, user.id, optional(payload, "reason")),
-        ]);
-        await audit(request, user.id, "SESSION_TRANSFERRED", "PLAY_SESSION", sessionId, "Chuyển bàn", { from: session.table_id, to: toTableId });
-        break;
-      }
-      case "session.end": {
-        requireAny(user, ["SESSIONS_MANAGE"]);
-        const sessionId = required(payload, "sessionId", "Phiên chơi");
-        const session = await queryOne<{ table_id: string; status: string }>("SELECT table_id, status FROM play_sessions WHERE id=?", sessionId);
-        if (!session || !["ACTIVE", "PAUSED"].includes(session.status)) throw new AppError("Phiên chơi đã kết thúc hoặc không tồn tại.");
-        const segment = await queryOne<{ id: string }>("SELECT id FROM session_segments WHERE session_id=? AND ended_at IS NULL ORDER BY started_at DESC", sessionId);
-        if (!segment) throw new AppError("Không tìm thấy đoạn tính giờ.");
-        const endedAt = nowIso();
-        await closeSegment(segment.id, sessionId, endedAt);
-        const amount = await calculateSessionAmount(sessionId, new Date(endedAt));
-        await db.batch([
-          db.prepare("UPDATE play_sessions SET status='CLOSED', ended_at=?, table_amount=?, closed_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(endedAt, amount, user.id, sessionId),
-          db.prepare("UPDATE billiard_tables SET status='AVAILABLE', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(session.table_id),
-          db.prepare("UPDATE orders SET status='COMPLETED', updated_at=CURRENT_TIMESTAMP WHERE session_id=? AND status='OPEN'").bind(sessionId),
-        ]);
-        await audit(request, user.id, "SESSION_ENDED", "PLAY_SESSION", sessionId, "Kết thúc phiên chơi", { tableAmount: amount });
-        result = { tableAmount: amount };
-        break;
-      }
-      case "category.save": {
-        requireAny(user, ["PRODUCTS_MANAGE"]);
-        const categoryId = optional(payload, "id") ?? id("cat");
-        const categoryCode = required(payload, "code", "Mã nhóm").toUpperCase();
-        const name = required(payload, "name", "Tên nhóm");
-        if (payload.id) await db.prepare("UPDATE product_categories SET code=?, name=?, sort_order=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(categoryCode, name, numberValue(payload, "sortOrder"), categoryId).run();
-        else await db.prepare("INSERT INTO product_categories (id, code, name, sort_order) VALUES (?, ?, ?, ?)").bind(categoryId, categoryCode, name, numberValue(payload, "sortOrder")).run();
-        await audit(request, user.id, "PRODUCT_CATEGORY_SAVED", "PRODUCT_CATEGORY", categoryId, `Lưu nhóm ${name}`);
-        break;
-      }
-      case "product.save": {
-        requireAny(user, ["PRODUCTS_MANAGE"]);
-        const productId = optional(payload, "id") ?? id("prd");
-        const productCode = required(payload, "code", "Mã sản phẩm").toUpperCase();
-        const name = required(payload, "name", "Tên sản phẩm");
-        const salePrice = numberValue(payload, "salePrice");
-        const costPrice = numberValue(payload, "costPrice");
-        const minStock = numberValue(payload, "minStock");
-        if (salePrice < 0 || costPrice < 0 || minStock < 0) throw new AppError("Giá và tồn tối thiểu không được âm.");
-        const args = [productCode, name, optional(payload, "categoryId"), value(payload, "kind") === "SERVICE" ? "SERVICE" : "PRODUCT", value(payload, "unit") || "phần", salePrice, costPrice, minStock, payload.trackStock === false ? 0 : 1];
-        if (payload.id) await db.prepare("UPDATE products SET code=?, name=?, category_id=?, kind=?, unit=?, sale_price=?, cost_price=?, min_stock=?, track_stock=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(...args, productId).run();
-        else await db.prepare("INSERT INTO products (id, code, name, category_id, kind, unit, sale_price, cost_price, min_stock, track_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(productId, ...args).run();
-        await audit(request, user.id, "PRODUCT_SAVED", "PRODUCT", productId, `Lưu sản phẩm/dịch vụ ${name}`);
-        break;
-      }
-      case "product.delete": {
-        requireAny(user, ["PRODUCTS_MANAGE"]);
-        const productId = required(payload, "id", "Sản phẩm");
-        await db.prepare("UPDATE products SET active=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(productId).run();
-        await audit(request, user.id, "PRODUCT_DELETED", "PRODUCT", productId, "Ngừng kinh doanh sản phẩm/dịch vụ");
-        break;
-      }
-      case "order.add": {
-        requireAny(user, ["ORDERS_MANAGE"]);
-        const sessionId = required(payload, "sessionId", "Phiên chơi");
-        const productId = required(payload, "productId", "Sản phẩm");
-        const quantity = numberValue(payload, "quantity");
-        if (quantity <= 0) throw new AppError("Số lượng phải lớn hơn 0.");
-        const session = await queryOne("SELECT id FROM play_sessions WHERE id=? AND status IN ('ACTIVE','PAUSED')", sessionId);
-        if (!session) throw new AppError("Chỉ có thể tạo order cho phiên đang hoạt động.");
-        const product = await queryOne<{ name: string; sale_price: number; stock_quantity: number; track_stock: number }>("SELECT name, sale_price, stock_quantity, track_stock FROM products WHERE id=? AND active=1", productId);
-        if (!product) throw new AppError("Sản phẩm không khả dụng.");
-        if (product.track_stock && product.stock_quantity < quantity) throw new AppError("Tồn kho không đủ.");
-        let order = await queryOne<{ id: string }>("SELECT id FROM orders WHERE session_id=? AND status='OPEN'", sessionId);
-        if (!order) {
-          order = { id: id("ord") };
-          await db.prepare("INSERT INTO orders (id, code, session_id, created_by) VALUES (?, ?, ?, ?)").bind(order.id, code("OD"), sessionId, user.id).run();
-        }
-        const itemId = id("item");
-        await db.prepare("INSERT INTO order_items (id, order_id, product_id, product_name, quantity, unit_price, notes) VALUES (?, ?, ?, ?, ?, ?, ?)")
-          .bind(itemId, order.id, productId, product.name, quantity, product.sale_price, optional(payload, "notes")).run();
-        await audit(request, user.id, "ORDER_ITEM_ADDED", "ORDER", order.id, `Thêm ${quantity} ${product.name} vào order`, { itemId });
-        break;
-      }
-      case "order.item.update": {
-        requireAny(user, ["ORDERS_MANAGE"]);
-        const itemId = required(payload, "itemId", "Món");
-        const item = await queryOne<{ status: string }>("SELECT status FROM order_items WHERE id=?", itemId);
-        if (!item || ["SERVED", "CANCELLED"].includes(item.status)) throw new AppError("Món đã phục vụ/hủy không thể sửa số lượng.");
-        const quantity = numberValue(payload, "quantity");
-        if (quantity <= 0) throw new AppError("Số lượng phải lớn hơn 0.");
-        await db.prepare("UPDATE order_items SET quantity=?, notes=? WHERE id=?").bind(quantity, optional(payload, "notes"), itemId).run();
-        await audit(request, user.id, "ORDER_ITEM_UPDATED", "ORDER_ITEM", itemId, "Cập nhật món trong order");
-        break;
-      }
-      case "order.item.status": {
-        requireAny(user, ["ORDERS_MANAGE"]);
-        const itemId = required(payload, "itemId", "Món");
-        const status = required(payload, "status", "Trạng thái");
-        if (!new Set(["PENDING", "PREPARING", "SERVED", "CANCELLED"]).has(status)) throw new AppError("Trạng thái món không hợp lệ.");
-        const item = await queryOne<{ status: string; product_id: string; quantity: number; product_name: string }>("SELECT status, product_id, quantity, product_name FROM order_items WHERE id=?", itemId);
-        if (!item) throw new AppError("Không tìm thấy món.");
-        if (item.status === "SERVED" && status !== "SERVED") throw new AppError("Món đã phục vụ không thể quay lại trạng thái trước.");
-        if (status === "SERVED" && item.status !== "SERVED") {
-          const product = await queryOne<{ stock_quantity: number; track_stock: number }>("SELECT stock_quantity, track_stock FROM products WHERE id=?", item.product_id);
-          if (product?.track_stock && product.stock_quantity < item.quantity) throw new AppError("Tồn kho không đủ để hoàn tất món.");
-          if (product?.track_stock) {
-            const after = product.stock_quantity - item.quantity;
-            await db.batch([
-              db.prepare("UPDATE products SET stock_quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(after, item.product_id),
-              db.prepare("INSERT INTO inventory_transactions (id, code, product_id, type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_by) VALUES (?, ?, ?, 'SALE', ?, ?, ?, 'ORDER_ITEM', ?, ?, ?)")
-                .bind(id("stock"), code("XK"), item.product_id, item.quantity, product.stock_quantity, after, itemId, `Phục vụ ${item.product_name}`, user.id),
-            ]);
-          }
-        }
-        await db.prepare("UPDATE order_items SET status=? WHERE id=?").bind(status, itemId).run();
-        await audit(request, user.id, "ORDER_ITEM_STATUS_CHANGED", "ORDER_ITEM", itemId, `Cập nhật món thành ${status}`);
-        break;
-      }
       case "customer.save": {
         requireAny(user, ["CUSTOMERS_MANAGE"]);
         const customerId = optional(payload, "id") ?? id("cus");
@@ -440,6 +140,7 @@ export async function POST(request: Request) {
         const session = await queryOne<{ id: string; status: string; table_amount: number; customer_id: string | null; code: string }>("SELECT id, status, table_amount, customer_id, code FROM play_sessions WHERE id=?", sessionId);
         if (!session || session.status !== "CLOSED") throw new AppError("Cần kết thúc phiên chơi trước khi lập hóa đơn.");
         if (await queryOne("SELECT id FROM invoices WHERE session_id=? AND status<>'CANCELLED'", sessionId)) throw new AppError("Phiên chơi đã có hóa đơn.");
+        if (await queryOne("SELECT oi.id FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.session_id=? AND oi.status IN ('PENDING','PREPARING') LIMIT 1", sessionId)) throw new AppError("Còn món chưa hoàn thành. Phục vụ hoặc hủy món trước khi lập hóa đơn.");
         const invoiceId = id("bill");
         const items = await queryAll<{ id: string; product_id: string; product_name: string; quantity: number; unit_price: number; kind: string }>(`
           SELECT oi.id, oi.product_id, oi.product_name, oi.quantity, oi.unit_price, p.kind FROM order_items oi
