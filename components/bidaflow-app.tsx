@@ -6,7 +6,7 @@ import {
   Activity, Archive, BarChart3, CalendarClock, Check,
   CircleDollarSign, ClipboardList, Clock3, Coffee, CreditCard, DoorOpen, History,
   LockKeyhole, LogOut, PackagePlus, Pause, Pencil, Play, Plus,
-  ReceiptText, RefreshCw, Search, Settings2, ShieldCheck, ShoppingBasket, Sparkles,
+  ReceiptText, RefreshCw, Search, Settings2, ShieldCheck, Sparkles,
   Table2, TimerReset, UserRound, UsersRound, Warehouse, Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -59,12 +59,11 @@ type FormConfig = { title: string; description?: string; submitLabel?: string; f
 const money = (amount: unknown) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(amount ?? 0));
 const dateTime = (value: unknown) => value ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(String(value))) : "-";
 const localInput = (value?: string | null) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
-const duration = (start: string, end?: string | null) => {
-  const seconds = Math.max(0, Math.floor(((end ? new Date(end) : new Date()).getTime() - new Date(start).getTime()) / 1000));
-  const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
-  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0");
-  const s = (seconds % 60).toString().padStart(2, "0");
-  return `${h}:${m}:${s}`;
+
+const playingDuration = (session: Row) => {
+  const delta = session.status === "ACTIVE" ? Math.max(0, (Date.now() - Date.parse(session.sampled_at)) / 1000) : 0;
+  const seconds = Math.floor(Number(session.billable_seconds ?? 0) + delta);
+  return [Math.floor(seconds / 3600), Math.floor(seconds % 3600 / 60), seconds % 60].map((v) => String(v).padStart(2, "0")).join(":");
 };
 
 const STATUS: Record<string, { label: string; className: string }> = {
@@ -82,6 +81,7 @@ const STATUS: Record<string, { label: string; className: string }> = {
   NO_SHOW: { label: "Không đến", className: "bg-slate-100 text-slate-700" },
   ISSUED: { label: "Chờ thanh toán", className: "bg-amber-100 text-amber-800" },
   PAID: { label: "Đã thanh toán", className: "bg-emerald-100 text-emerald-800" },
+  COMPLETED: { label: "Hoàn thành", className: "bg-emerald-100 text-emerald-800" },
   OPEN: { label: "Đang mở", className: "bg-emerald-100 text-emerald-800" },
   LOCKED: { label: "Đã khóa", className: "bg-rose-100 text-rose-700" },
 };
@@ -134,7 +134,7 @@ function AuthScreen({ initialized, onSuccess }: { initialized: boolean; onSucces
           <CardContent>
             <form onSubmit={submit} className="space-y-4">
               {mode === "register" && <FieldInput label="Họ và tên" value={form.fullName} onChange={(fullName) => setForm({ ...form, fullName })} placeholder="Nguyễn Minh Anh" />}
-              <FieldInput label={mode === "login" ? "Email hoặc tên đăng nhập" : "Email"} type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} placeholder="ban@quanbida.vn" />
+              <FieldInput label={mode === "login" ? "Email hoặc tên đăng nhập" : "Email"} type={mode === "login" ? "text" : "email"} value={form.email} onChange={(email) => setForm({ ...form, email })} placeholder="ban@quanbida.vn" />
               <FieldInput label="Mật khẩu" type="password" value={form.password} onChange={(password) => setForm({ ...form, password })} placeholder={mode === "register" ? "Tối thiểu 10 ký tự mạnh" : "Nhập mật khẩu"} />
               {mode === "register" && <FieldInput label={initialized ? "Mã mời" : "Mã thiết lập ban đầu"} type="password" value={initialized ? form.invitationCode : form.setupCode} onChange={(next) => setForm(initialized ? { ...form, invitationCode: next } : { ...form, setupCode: next })} placeholder={initialized ? "Mã dùng một lần" : "Mã cấu hình triển khai"} />}
               <Button className="h-11 w-full rounded-xl bg-[#0b6b55] hover:bg-[#075744]" disabled={busy}>{busy && <RefreshCw className="animate-spin" />}{mode === "login" ? "Đăng nhập" : "Tạo tài khoản"}</Button>
@@ -149,7 +149,8 @@ function AuthScreen({ initialized, onSuccess }: { initialized: boolean; onSucces
 }
 
 function FieldInput({ label, value, onChange, type = "text", placeholder }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string }) {
-  return <div className="space-y-2"><Label>{label}</Label><Input required type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-11 rounded-xl" /></div>;
+  const inputId = React.useId();
+  return <div className="space-y-2"><Label htmlFor={inputId}>{label}</Label><Input id={inputId} required type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-11 rounded-xl" /></div>;
 }
 
 function Logo({ dark = false }: { dark?: boolean }) {
@@ -237,14 +238,14 @@ function AppShell(props: ShellProps) {
   const permission = (code: string) => props.data.user.roleCode === "ADMIN" || props.data.user.permissions.includes(code);
   const nav = [
     { id: "tables", label: "Sơ đồ bàn", icon: Table2, show: permission("TABLES_VIEW") },
-    { id: "reservations", label: "Đặt bàn", icon: CalendarClock, show: permission("RESERVATIONS_MANAGE") },
+    { id: "reservations", label: "Đặt bàn", icon: CalendarClock, show: permission("RESERVATIONS_MANAGE") || permission("SESSIONS_MANAGE") },
     { id: "orders", label: "Order & phục vụ", icon: Coffee, show: permission("ORDERS_MANAGE") },
     { id: "customers", label: "Khách hàng", icon: UsersRound, show: permission("CUSTOMERS_MANAGE") || permission("MEMBERSHIPS_MANAGE") },
     { id: "billing", label: "Hóa đơn", icon: ReceiptText, show: permission("INVOICES_VIEW") },
     { id: "inventory", label: "Kho hàng", icon: Warehouse, show: permission("INVENTORY_MANAGE") },
     { id: "shifts", label: "Ca làm việc", icon: Clock3, show: permission("SHIFTS_MANAGE") || permission("SHIFTS_HISTORY") },
     { id: "reports", label: "Báo cáo", icon: BarChart3, show: permission("REPORTS_VIEW") },
-    { id: "admin", label: "Quản trị", icon: Settings2, show: permission("USERS_MANAGE") || permission("TABLES_MANAGE") || permission("PRICES_MANAGE") || permission("PRODUCTS_MANAGE") },
+    { id: "admin", label: "Quản trị", icon: Settings2, show: permission("USERS_MANAGE") || permission("ROLES_MANAGE") || permission("TABLES_MANAGE") || permission("PRICES_MANAGE") || permission("PRODUCTS_MANAGE") || permission("MEMBERSHIPS_MANAGE") },
     { id: "audit", label: "Nhật ký", icon: History, show: permission("AUDIT_VIEW") },
     { id: "profile", label: "Hồ sơ", icon: UserRound, show: true },
   ].filter((item) => item.show);
@@ -256,7 +257,7 @@ function AppShell(props: ShellProps) {
       <SidebarFooter className="p-3"><button onClick={() => selectPage("profile")} className="flex w-full items-center gap-3 rounded-xl bg-white/5 p-2 text-left transition hover:bg-white/10"><div className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-300 font-semibold text-emerald-950">{props.data.user.fullName.slice(0, 1).toUpperCase()}</div><div className="min-w-0 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium">{props.data.user.fullName}</p><p className="truncate text-xs text-emerald-100/55">{props.data.user.roleName}</p></div></button></SidebarFooter>
     </Sidebar>
     <SidebarInset className="min-w-0 bg-[#f2f6f4]"><header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-emerald-950/5 bg-[#f2f6f4]/90 px-4 backdrop-blur-xl sm:px-6"><SidebarTrigger className="md:hidden" /><div className="min-w-0"><h1 className="truncate text-lg font-semibold tracking-tight">{current.label}</h1><p className="hidden text-xs text-muted-foreground sm:block">{new Intl.DateTimeFormat("vi-VN", { dateStyle: "full", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date())}</p></div><div className="ml-auto flex items-center gap-2"><Button variant="ghost" size="icon" onClick={() => props.reload()} aria-label="Làm mới"><RefreshCw /></Button><Badge variant="outline" className="hidden bg-white sm:flex">{props.data.user.roleName}</Badge></div></header>
-      <div className="soft-in mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8"><PageContent {...props} permission={permission} /></div>
+      <div className="soft-in mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8"><PageContent {...props} page={current.id} permission={permission} /></div>
     </SidebarInset>
   </>;
 }
@@ -287,8 +288,8 @@ function SummaryCards({ data }: { data: AppData }) {
   const cards = [
     { label: "Bàn đang chơi", value: `${data.summary.playing_count ?? 0}/${data.summary.table_count ?? 0}`, icon: Play, tint: "bg-sky-50 text-sky-700" },
     { label: "Lịch đặt hôm nay", value: data.summary.reservation_count ?? 0, icon: CalendarClock, tint: "bg-amber-50 text-amber-700" },
-    { label: "Doanh thu hôm nay", value: money(data.summary.today_revenue), icon: CircleDollarSign, tint: "bg-emerald-50 text-emerald-700" },
-    { label: "Hàng sắp hết", value: data.summary.low_stock_count ?? 0, icon: Archive, tint: "bg-rose-50 text-rose-700" },
+    { label: "Doanh thu hôm nay", value: data.summary.today_revenue === undefined ? "—" : money(data.summary.today_revenue), icon: CircleDollarSign, tint: "bg-emerald-50 text-emerald-700" },
+    { label: "Hàng sắp hết", value: data.summary.low_stock_count ?? "—", icon: Archive, tint: "bg-rose-50 text-rose-700" },
   ];
   return <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map((card) => <Card key={card.label} className="gap-3 border-0 py-4 shadow-[0_8px_30px_rgba(13,49,39,.05)]"><CardContent className="flex items-center gap-3 px-4"><div className={cn("grid size-11 place-items-center rounded-2xl", card.tint)}><card.icon className="size-5" /></div><div><p className="text-xs font-medium text-muted-foreground">{card.label}</p><p className="mt-1 text-xl font-semibold tracking-tight">{card.value}</p></div></CardContent></Card>)}</div>;
 }
@@ -298,50 +299,113 @@ function TablesView(props: ShellProps) {
   const [query, setQuery] = React.useState("");
   const [, setTick] = React.useState(0);
   React.useEffect(() => { const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000); return () => window.clearInterval(timer); }, []);
-  const tables = (props.data.tables as Row[]).filter((table) => (area === "all" || table.area_id === area) && `${table.name} ${table.code}`.toLowerCase().includes(query.toLowerCase()));
+  const allowed = (permission: string) => props.data.user.roleCode === "ADMIN" || props.data.user.permissions.includes(permission);
+  const canPause = allowed("SESSIONS_MANAGE") && ["ADMIN", "MANAGER", "CASHIER"].includes(props.data.user.roleCode);
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const tables = (props.data.tables as Row[]).filter((table) => (area === "all" || table.area_id === area) && (statusFilter === "all" || table.status === statusFilter) && `${table.name} ${table.code}`.toLowerCase().includes(query.toLowerCase()));
   const activeSessions = (props.data.sessions as Row[]).filter((session) => ["ACTIVE", "PAUSED"].includes(session.status));
   const customerOptions = (props.data.customers as Row[]).map((customer) => ({ value: customer.id, label: `${customer.full_name}${customer.phone ? ` · ${customer.phone}` : ""}` }));
   const startSession = (table: Row) => props.openForm({ title: `Mở ${table.name}`, description: `Đơn giá hiện tại được chốt khi bắt đầu phiên.`, submitLabel: "Bắt đầu tính giờ", fields: [{ key: "customerId", label: "Khách hàng (không bắt buộc)", type: "select", options: customerOptions }, { key: "notes", label: "Ghi chú", type: "textarea" }], onSubmit: (values) => props.run("session.start", { ...values, tableId: table.id }) });
   const transfer = (session: Row) => props.openForm({ title: "Chuyển bàn", description: "Hệ thống chốt đoạn tính giờ tại bàn cũ và mở đoạn mới theo giá bàn đích.", submitLabel: "Chuyển bàn", fields: [{ key: "toTableId", label: "Bàn đích", type: "select", required: true, options: (props.data.tables as Row[]).filter((item) => item.status === "AVAILABLE" && item.id !== session.table_id).map((item) => ({ value: item.id, label: `${item.name} · ${item.type_name}` })) }, { key: "reason", label: "Lý do", type: "textarea" }], onSubmit: (values) => props.run("session.transfer", { ...values, sessionId: session.id }) });
   const addOrder = (session: Row) => props.openForm({ title: `Thêm món cho ${session.table_name}`, submitLabel: "Thêm vào order", fields: [{ key: "productId", label: "Sản phẩm / dịch vụ", type: "select", required: true, options: (props.data.products as Row[]).map((product) => ({ value: product.id, label: `${product.name} · ${money(product.sale_price)}` })) }, { key: "quantity", label: "Số lượng", type: "number", min: 1, step: 1, required: true, value: 1 }, { key: "notes", label: "Ghi chú", type: "textarea" }], onSubmit: (values) => props.run("order.add", { ...values, sessionId: session.id }) });
+  const endSession = (session: Row) => {
+    const orderIds = new Set((props.data.orders as Row[]).filter((order) => order.session_id === session.id).map((order) => order.id));
+    const pending = (props.data.orderItems as Row[]).some((item) => orderIds.has(item.order_id) && ["PENDING", "PREPARING"].includes(item.status));
+    props.openForm({ title: `Kết thúc ${session.table_name}`, description: pending ? "Còn món chưa hoàn thành. Tiền bàn sẽ được chốt; các món vẫn cần phục vụ hoặc hủy trước khi lập hóa đơn." : "Chốt thời gian và tiền bàn cho phiên chơi này.", submitLabel: "Xác nhận kết thúc", fields: [], onSubmit: () => props.run("session.end", { sessionId: session.id, confirmPendingOrders: pending }) });
+  };
   return <>
     <SummaryCards data={props.data} />
-    <SectionHeader title="Sơ đồ bàn trực tiếp" description="Trạng thái, thời gian và tiền tạm tính được cập nhật liên tục." actions={<><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm bàn..." className="w-44 bg-white pl-9" /></div><NativeSelect value={area} onChange={(event) => setArea(event.target.value)} className="bg-white"><NativeSelectOption value="all">Tất cả khu vực</NativeSelectOption>{(props.data.areas as Row[]).map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></>} />
+    <SectionHeader title="Sơ đồ bàn trực tiếp" description="Trạng thái, thời gian và tiền tạm tính được cập nhật liên tục." actions={<><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm bàn..." className="w-44 bg-white pl-9" /></div><NativeSelect value={area} onChange={(event) => setArea(event.target.value)} className="bg-white"><NativeSelectOption value="all">Tất cả khu vực</NativeSelectOption>{(props.data.areas as Row[]).map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect><NativeSelect aria-label="Lọc trạng thái bàn" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><NativeSelectOption value="all">Mọi trạng thái</NativeSelectOption>{["AVAILABLE","PLAYING","RESERVED","MAINTENANCE"].map((status) => <NativeSelectOption key={status} value={status}>{STATUS[status].label}</NativeSelectOption>)}</NativeSelect></>} />
     <div className="mb-5 flex flex-wrap gap-2 text-xs">{["AVAILABLE", "PLAYING", "RESERVED", "MAINTENANCE"].map((status) => <StatusBadge key={status} value={status} />)}</div>
-    {!tables.length ? <EmptyState icon={Table2} title="Chưa có bàn để hiển thị" description="Quản lý cần tạo khu vực, loại bàn và bàn trong phần Quản trị." action={<Button onClick={() => props.setPage("admin")}><Settings2 />Mở cấu hình</Button>} /> :
+    {!tables.length ? <EmptyState icon={Table2} title="Chưa có bàn để hiển thị" description="Quản lý cần tạo khu vực, loại bàn và bàn trong phần Quản trị." action={allowed("TABLES_MANAGE") ? <Button onClick={() => props.setPage("admin")}><Settings2 />Mở cấu hình</Button> : undefined} /> :
       <div className="space-y-7">{(props.data.areas as Row[]).filter((item) => area === "all" || item.id === area).map((item) => { const areaTables = tables.filter((table) => table.area_id === item.id); if (!areaTables.length) return null; return <section key={item.id}><div className="mb-3 flex items-center gap-2"><h3 className="font-semibold">{item.name}</h3><Badge variant="secondary">{areaTables.length} bàn</Badge></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{areaTables.map((table) => {
         const session = activeSessions.find((candidate) => candidate.table_id === table.id);
         const cardTone = table.status === "PLAYING" ? "border-sky-200 bg-gradient-to-br from-white to-sky-50" : table.status === "RESERVED" ? "border-amber-200 bg-gradient-to-br from-white to-amber-50" : table.status === "MAINTENANCE" ? "border-slate-200 bg-slate-50" : "border-emerald-100 bg-gradient-to-br from-white to-emerald-50/60";
         return <Card key={table.id} className={cn("group gap-4 overflow-hidden py-4 shadow-[0_8px_28px_rgba(14,54,43,.05)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(14,54,43,.1)]", cardTone)}><CardHeader className="px-4"><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-lg">{table.name}</CardTitle><CardDescription className="mt-1">{table.type_name} · {money(table.base_hourly_rate)}/giờ</CardDescription></div><StatusBadge value={table.status} /></div></CardHeader><CardContent className="space-y-4 px-4">
-          {session ? <><div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-white/75 p-3"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Thời gian</p><p className="mt-1 font-mono text-lg font-semibold">{duration(session.started_at)}</p></div><div className="rounded-xl bg-white/75 p-3"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Tạm tính</p><p className="mt-1 text-lg font-semibold">{money(session.live_table_amount)}</p></div></div>{session.customer_name && <p className="text-sm text-muted-foreground"><UserRound className="mr-1 inline size-4" />{session.customer_name}</p>}<div className="flex flex-wrap gap-2">
-            {session.status === "ACTIVE" ? <Button size="sm" variant="outline" onClick={() => props.openForm({ title: "Tạm dừng tính giờ", fields: [{ key: "reason", label: "Lý do", type: "textarea", required: true }], onSubmit: (values) => props.run("session.pause", { sessionId: session.id, ...values }) })}><Pause />Tạm dừng</Button> : <Button size="sm" variant="outline" onClick={() => props.run("session.resume", { sessionId: session.id })}><Play />Tiếp tục</Button>}
-            <Button size="sm" variant="outline" onClick={() => addOrder(session)}><Coffee />Thêm món</Button><Button size="sm" variant="outline" onClick={() => transfer(session)}><TimerReset />Chuyển bàn</Button><Button size="sm" onClick={() => props.run("session.end", { sessionId: session.id })}><Check />Kết thúc</Button>
-          </div></> : <div className="flex min-h-24 flex-col justify-between"><p className="text-sm text-muted-foreground">{table.status === "AVAILABLE" ? "Bàn sẵn sàng nhận khách." : table.status === "RESERVED" ? "Có lịch đặt đang chờ nhận bàn." : "Bàn đang được bảo trì."}</p><div className="mt-4 flex gap-2">{["AVAILABLE", "RESERVED"].includes(table.status) && <Button size="sm" onClick={() => startSession(table)}><DoorOpen />Mở bàn</Button>}<Button size="sm" variant="outline" onClick={() => props.openForm({ title: `Cập nhật ${table.name}`, fields: [{ key: "status", label: "Trạng thái", type: "select", required: true, value: table.status, options: [{ value: "AVAILABLE", label: "Sẵn sàng" }, { value: "RESERVED", label: "Đã đặt" }, { value: "MAINTENANCE", label: "Bảo trì" }] }], onSubmit: (values) => props.run("table.status", { id: table.id, ...values }) })}><Wrench />Trạng thái</Button></div></div>}
+          {session ? <><div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-white/75 p-3"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Thời gian</p><p className="mt-1 font-mono text-lg font-semibold">{playingDuration(session)}</p></div><div className="rounded-xl bg-white/75 p-3"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Tạm tính</p><p className="mt-1 text-lg font-semibold">{money(session.live_table_amount)}</p></div></div>{session.customer_name && <p className="text-sm text-muted-foreground"><UserRound className="mr-1 inline size-4" />{session.customer_name}</p>}<div className="flex flex-wrap gap-2">
+            {canPause && (session.status === "ACTIVE" ? <Button size="sm" variant="outline" onClick={() => props.openForm({ title: "Tạm dừng tính giờ", fields: [{ key: "reason", label: "Lý do", type: "textarea", required: true }], onSubmit: (values) => props.run("session.pause", { sessionId: session.id, ...values }) })}><Pause />Tạm dừng</Button> : <Button size="sm" variant="outline" onClick={() => props.run("session.resume", { sessionId: session.id })}><Play />Tiếp tục</Button>)}
+            <Button disabled={!allowed("ORDERS_MANAGE")} size="sm" variant="outline" onClick={() => addOrder(session)}><Coffee />Thêm món</Button><Button disabled={!canPause} size="sm" variant="outline" onClick={() => transfer(session)}><TimerReset />Chuyển bàn</Button><Button disabled={!allowed("SESSIONS_MANAGE")} size="sm" onClick={() => endSession(session)}><Check />Kết thúc</Button>
+          </div></> : <div className="flex min-h-24 flex-col justify-between"><p className="text-sm text-muted-foreground">{table.status === "AVAILABLE" ? "Bàn sẵn sàng nhận khách." : table.status === "RESERVED" ? "Có lịch đặt đang chờ nhận bàn." : "Bàn đang được bảo trì."}</p><div className="mt-4 flex gap-2">{table.status === "AVAILABLE" && <Button disabled={!allowed("SESSIONS_MANAGE")} size="sm" onClick={() => startSession(table)}><DoorOpen />Mở bàn</Button>}{table.status === "RESERVED" && allowed("SESSIONS_MANAGE") && <Button size="sm" onClick={() => props.setPage("reservations")}>Xem lịch đặt</Button>}<Button disabled={!allowed("TABLE_STATUS")} size="sm" variant="outline" onClick={() => props.openForm({ title: `Cập nhật ${table.name}`, fields: [{ key: "status", label: "Trạng thái", type: "select", required: true, value: table.status, options: [{ value: "AVAILABLE", label: "Sẵn sàng" }, { value: "RESERVED", label: "Đã đặt" }, { value: "MAINTENANCE", label: "Bảo trì" }] }], onSubmit: (values) => props.run("table.status", { id: table.id, ...values }) })}><Wrench />Trạng thái</Button></div></div>}
         </CardContent></Card>;
       })}</div></section>; })}</div>}
   </>;
 }
 
 function ReservationsView(props: ShellProps) {
+  const allowed = (permission: string) => props.data.user.roleCode === "ADMIN" || props.data.user.permissions.includes(permission);
+  const canManage = allowed("RESERVATIONS_MANAGE");
+  const [filter, setFilter] = React.useState({ date: "", table: "all", status: "all" });
   const tableOptions = (props.data.tables as Row[]).filter((table) => table.status !== "MAINTENANCE").map((table) => ({ value: table.id, label: `${table.name} · ${table.area_name}` }));
+  const rows = (props.data.reservations as Row[]).filter((row) =>
+    (filter.date === "" || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(row.starts_at)) === filter.date) &&
+    (filter.table === "all" || row.table_id === filter.table) && (filter.status === "all" || row.status === filter.status));
   const create = (row?: Row) => props.openForm({ title: row ? "Cập nhật lịch đặt" : "Tạo lịch đặt", description: "Một bàn không thể có hai lịch đặt chồng lấn.", fields: [
     { key: "customerName", label: "Tên khách", required: true, value: row?.customer_name }, { key: "customerPhone", label: "Số điện thoại", required: true, value: row?.customer_phone },
     { key: "tableId", label: "Bàn", type: "select", required: true, value: row?.table_id, options: tableOptions },
     { key: "startsAt", label: "Bắt đầu", type: "datetime-local", required: true, value: localInput(row?.starts_at) }, { key: "endsAt", label: "Kết thúc dự kiến", type: "datetime-local", required: true, value: localInput(row?.ends_at) },
-    { key: "guestCount", label: "Số khách", type: "number", min: 1, value: row?.guest_count ?? 1 }, { key: "status", label: "Trạng thái", type: "select", value: row?.status ?? "PENDING", options: [{ value: "PENDING", label: "Chờ xác nhận" }, { value: "CONFIRMED", label: "Đã xác nhận" }] }, { key: "notes", label: "Ghi chú", type: "textarea", value: row?.notes },
-  ], onSubmit: (values) => props.run("reservation.save", { ...values, id: row?.id, startsAt: new Date(values.startsAt).toISOString(), endsAt: new Date(values.endsAt).toISOString() }) });
-  return <><SectionHeader title="Lịch đặt bàn" description="Theo dõi, xác nhận và nhận bàn từ cùng một danh sách." actions={<Button onClick={() => create()}><Plus />Tạo lịch đặt</Button>} />
-    {!(props.data.reservations as Row[]).length ? <EmptyState icon={CalendarClock} title="Chưa có lịch đặt" description="Tạo lịch đầu tiên; hệ thống sẽ tự kiểm tra xung đột thời gian." action={<Button onClick={() => create()}><Plus />Đặt bàn</Button>} /> : <Card className="gap-0 overflow-hidden py-0"><Table><TableHeader><TableRow><TableHead>Mã</TableHead><TableHead>Khách hàng</TableHead><TableHead>Bàn</TableHead><TableHead>Thời gian</TableHead><TableHead>Trạng thái</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader><TableBody>{(props.data.reservations as Row[]).map((row) => <TableRow key={row.id}><TableCell className="font-mono text-xs">{row.code}</TableCell><TableCell><div className="font-medium">{row.customer_name}</div><div className="text-xs text-muted-foreground">{row.customer_phone}</div></TableCell><TableCell>{row.table_name}</TableCell><TableCell><div>{dateTime(row.starts_at)}</div><div className="text-xs text-muted-foreground">đến {dateTime(row.ends_at)}</div></TableCell><TableCell><StatusBadge value={row.status} /></TableCell><TableCell><div className="flex justify-end gap-1"><Button size="icon-sm" variant="ghost" onClick={() => create(row)} aria-label="Chỉnh sửa"><Pencil /></Button>{["PENDING", "CONFIRMED"].includes(row.status) && <><Button size="sm" variant="outline" onClick={() => props.run("reservation.status", { id: row.id, status: row.status === "PENDING" ? "CONFIRMED" : "CANCELLED" })}>{row.status === "PENDING" ? "Xác nhận" : "Hủy"}</Button><Button size="sm" onClick={() => props.run("reservation.seat", { reservationId: row.id })}>Nhận bàn</Button></>}</div></TableCell></TableRow>)}</TableBody></Table></Card>}
+    { key: "guestCount", label: "Số khách", type: "number", min: 1, step: 1, value: row?.guest_count ?? 1 },
+    { key: "notes", label: "Ghi chú", type: "textarea", value: row?.notes },
+  ], onSubmit: (values) => props.run("reservation.save", { ...values, id: row?.id, customerId: row?.customer_id, status: row?.status ?? "PENDING", startsAt: new Date(values.startsAt).toISOString(), endsAt: new Date(values.endsAt).toISOString() }) });
+  return <>
+    <SectionHeader title="Lịch đặt bàn" description={canManage ? "Xác nhận, chỉnh sửa và theo dõi lịch đặt." : "Nhận bàn từ các lịch đã xác nhận."} actions={canManage && <Button onClick={() => create()}><Plus />Tạo lịch đặt</Button>} />
+    <div className="mb-4 flex flex-wrap gap-2">
+      <Input aria-label="Lọc ngày đặt" type="date" className="w-44 bg-white" value={filter.date} onChange={(e) => setFilter({ ...filter, date: e.target.value })} />
+      <NativeSelect aria-label="Lọc bàn đặt" value={filter.table} onChange={(e) => setFilter({ ...filter, table: e.target.value })}><NativeSelectOption value="all">Tất cả bàn</NativeSelectOption>{tableOptions.map((o) => <NativeSelectOption key={o.value} value={o.value}>{o.label}</NativeSelectOption>)}</NativeSelect>
+      <NativeSelect aria-label="Lọc trạng thái đặt" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><NativeSelectOption value="all">Mọi trạng thái</NativeSelectOption>{["PENDING","CONFIRMED","SEATED","CANCELLED","NO_SHOW"].map((status) => <NativeSelectOption key={status} value={status}>{STATUS[status].label}</NativeSelectOption>)}</NativeSelect>
+    </div>
+    {!rows.length ? <EmptyState icon={CalendarClock} title="Không có lịch đặt phù hợp" description="Đổi bộ lọc hoặc tạo lịch đặt mới." /> :
+      <Card className="gap-0 overflow-hidden py-0"><Table><TableHeader><TableRow><TableHead>Mã</TableHead><TableHead>Khách hàng</TableHead><TableHead>Bàn</TableHead><TableHead>Thời gian</TableHead><TableHead>Trạng thái</TableHead><TableHead>Thao tác</TableHead></TableRow></TableHeader><TableBody>
+        {rows.map((row) => <TableRow key={row.id}><TableCell className="font-mono text-xs">{row.code}</TableCell><TableCell><div>{row.customer_name}</div><div className="text-xs text-muted-foreground">{row.customer_phone}</div></TableCell><TableCell>{row.table_name}</TableCell><TableCell><div>{dateTime(row.starts_at)}</div><div className="text-xs text-muted-foreground">đến {dateTime(row.ends_at)}</div></TableCell><TableCell><StatusBadge value={row.status} /></TableCell><TableCell><div className="flex flex-wrap gap-1">
+          {canManage && ["PENDING","CONFIRMED"].includes(row.status) && <>
+            <Button size="icon-sm" variant="ghost" onClick={() => create(row)} aria-label="Chỉnh sửa lịch đặt"><Pencil /></Button>
+            {row.status === "PENDING" && <Button size="sm" variant="outline" onClick={() => props.run("reservation.status", { id: row.id, status: "CONFIRMED" })}>Xác nhận</Button>}
+            <Button size="sm" variant="outline" onClick={() => props.run("reservation.status", { id: row.id, status: "CANCELLED" })}>Hủy lịch</Button>
+            <Button size="sm" variant="ghost" onClick={() => props.run("reservation.status", { id: row.id, status: "NO_SHOW" })}>Không đến</Button>
+          </>}
+          {row.status === "CONFIRMED" && allowed("SESSIONS_MANAGE") && <Button size="sm" onClick={() => props.run("reservation.seat", { reservationId: row.id })}>Nhận bàn</Button>}
+        </div></TableCell></TableRow>)}
+      </TableBody></Table></Card>}
   </>;
 }
 
 function OrdersView(props: ShellProps) {
-  const [tableId, setTableId] = React.useState("all");
+  const [filter, setFilter] = React.useState({ table: "all", status: "OPEN", date: "" });
   const sessions = (props.data.sessions as Row[]).filter((session) => ["ACTIVE", "PAUSED"].includes(session.status));
-  const orders = (props.data.orders as Row[]).filter((order) => tableId === "all" || order.table_id === tableId);
-  const add = () => props.openForm({ title: "Thêm món vào bàn", fields: [{ key: "sessionId", label: "Bàn đang chơi", type: "select", required: true, options: sessions.map((session) => ({ value: session.id, label: session.table_name })) }, { key: "productId", label: "Sản phẩm / dịch vụ", type: "select", required: true, options: (props.data.products as Row[]).map((product) => ({ value: product.id, label: `${product.name} · ${money(product.sale_price)}` })) }, { key: "quantity", label: "Số lượng", type: "number", min: 1, step: 1, required: true, value: 1 }, { key: "notes", label: "Ghi chú", type: "textarea" }], onSubmit: (values) => props.run("order.add", values) });
-  return <><SectionHeader title="Order & phục vụ" description="Món mới, đang chuẩn bị và đã phục vụ theo từng bàn." actions={<><NativeSelect value={tableId} onChange={(event) => setTableId(event.target.value)} className="bg-white"><NativeSelectOption value="all">Tất cả bàn</NativeSelectOption>{sessions.map((session) => <NativeSelectOption key={session.id} value={session.table_id}>{session.table_name}</NativeSelectOption>)}</NativeSelect><Button onClick={add} disabled={!sessions.length}><Plus />Thêm món</Button></>} />
-    {!orders.length ? <EmptyState icon={Coffee} title="Chưa có order đang mở" description="Chọn một bàn đang chơi để thêm đồ uống, đồ ăn hoặc dịch vụ." action={sessions.length ? <Button onClick={add}><Plus />Tạo order</Button> : undefined} /> : <div className="grid gap-4 xl:grid-cols-2">{orders.map((order) => { const items = (props.data.orderItems as Row[]).filter((item) => item.order_id === order.id); return <Card key={order.id} className="gap-4"><CardHeader><div className="flex items-center justify-between"><div><CardTitle>{order.table_name}</CardTitle><CardDescription className="mt-1">{order.code} · {items.length} dòng</CardDescription></div><Badge variant="secondary">{money(items.filter((item) => item.status !== "CANCELLED").reduce((sum, item) => sum + Number(item.quantity) * Number(item.unit_price), 0))}</Badge></div></CardHeader><CardContent className="space-y-2">{items.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border bg-white p-3"><div className="grid size-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Coffee className="size-4" /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.product_name} × {item.quantity}</p><p className="text-xs text-muted-foreground">{money(Number(item.quantity) * Number(item.unit_price))}{item.notes ? ` · ${item.notes}` : ""}</p></div><NativeSelect size="sm" value={item.status} onChange={(event) => props.run("order.item.status", { itemId: item.id, status: event.target.value })} className="w-32"><NativeSelectOption value="PENDING">Mới gọi</NativeSelectOption><NativeSelectOption value="PREPARING">Đang làm</NativeSelectOption><NativeSelectOption value="SERVED">Đã phục vụ</NativeSelectOption><NativeSelectOption value="CANCELLED">Đã hủy</NativeSelectOption></NativeSelect></div>)}</CardContent></Card>; })}</div>}
+  const orders = (props.data.orders as Row[]).filter((order) =>
+    (filter.table === "all" || order.table_id === filter.table) && (filter.status === "all" || order.status === filter.status) &&
+    (!filter.date || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(order.created_at.endsWith("Z") ? order.created_at : order.created_at.replace(" ", "T") + "Z")) === filter.date));
+  const add = () => props.openForm({ title: "Thêm món vào bàn", fields: [
+    { key: "sessionId", label: "Bàn đang chơi", type: "select", required: true, options: sessions.map((session) => ({ value: session.id, label: session.table_name })) },
+    { key: "productId", label: "Sản phẩm / dịch vụ", type: "select", required: true, options: (props.data.products as Row[]).map((product) => ({ value: product.id, label: `${product.name} · ${money(product.sale_price)}` })) },
+    { key: "quantity", label: "Số lượng", type: "number", min: 0.01, step: 0.01, required: true, value: 1 }, { key: "notes", label: "Ghi chú", type: "textarea" },
+  ], onSubmit: (values) => props.run("order.add", values) });
+  const edit = (item: Row) => props.openForm({ title: `Sửa món · ${item.product_name}`, fields: [
+    { key: "quantity", label: "Số lượng", type: "number", min: 0.01, step: 0.01, required: true, value: item.quantity },
+    { key: "notes", label: "Ghi chú", type: "textarea", value: item.notes },
+  ], onSubmit: (values) => props.run("order.item.update", { ...values, itemId: item.id }) });
+  const itemLabels: Record<string, string> = { PENDING: "Mới gọi", PREPARING: "Đang làm", SERVED: "Đã phục vụ", CANCELLED: "Đã hủy" };
+  const transitions: Record<string, string[]> = { PENDING: ["PENDING","PREPARING","SERVED","CANCELLED"], PREPARING: ["PREPARING","SERVED","CANCELLED"], SERVED: ["SERVED"], CANCELLED: ["CANCELLED"] };
+  return <>
+    <SectionHeader title="Order & phục vụ" description="Theo dõi món, chỉnh sửa số lượng và hoàn tất phục vụ." actions={<Button onClick={add} disabled={!sessions.length}><Plus />Thêm món</Button>} />
+    <div className="mb-4 flex flex-wrap gap-2">
+      <NativeSelect aria-label="Lọc bàn order" value={filter.table} onChange={(e) => setFilter({ ...filter, table: e.target.value })}><NativeSelectOption value="all">Tất cả bàn</NativeSelectOption>{(props.data.tables as Row[]).map((table) => <NativeSelectOption key={table.id} value={table.id}>{table.name}</NativeSelectOption>)}</NativeSelect>
+      <NativeSelect aria-label="Lọc trạng thái order" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><NativeSelectOption value="all">Mọi trạng thái</NativeSelectOption>{["OPEN","COMPLETED","CANCELLED"].map((status) => <NativeSelectOption key={status} value={status}>{STATUS[status].label}</NativeSelectOption>)}</NativeSelect>
+      <Input aria-label="Lọc ngày order" type="date" className="w-44 bg-white" value={filter.date} onChange={(e) => setFilter({ ...filter, date: e.target.value })} />
+    </div>
+    {!orders.length ? <EmptyState icon={Coffee} title="Không có order phù hợp" description="Đổi bộ lọc hoặc thêm món cho bàn đang chơi." /> :
+      <div className="grid gap-4 xl:grid-cols-2">{orders.map((order) => {
+        const items = (props.data.orderItems as Row[]).filter((item) => item.order_id === order.id);
+        const locked = order.status !== "OPEN" || (props.data.invoices as Row[]).some((invoice) => invoice.session_id === order.session_id && invoice.status !== "CANCELLED");
+        return <Card key={order.id} className="gap-4"><CardHeader><div className="flex justify-between gap-3"><div><CardTitle>{order.table_name}</CardTitle><CardDescription className="mt-1">{order.code} · {dateTime(order.created_at)}</CardDescription><StatusBadge value={order.status} /></div><Badge variant="secondary">{money(items.filter((item) => item.status !== "CANCELLED").reduce((sum, item) => sum + Number(item.quantity) * Number(item.unit_price), 0))}</Badge></div></CardHeader>
+          <CardContent className="space-y-2">{items.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3">
+            <div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.product_name} × {item.quantity}</p><p className="text-xs text-muted-foreground">{money(item.quantity * item.unit_price)}{item.notes ? ` · ${item.notes}` : ""}</p></div>
+            {!locked && ["PENDING","PREPARING"].includes(item.status) && <Button aria-label={`Sửa ${item.product_name}`} size="icon-sm" variant="ghost" onClick={() => edit(item)}><Pencil /></Button>}
+            <NativeSelect aria-label={`Trạng thái ${item.product_name}`} disabled={locked || ["SERVED","CANCELLED"].includes(item.status)} size="sm" value={item.status} onChange={(e) => props.run("order.item.status", { itemId: item.id, status: e.target.value })} className="w-32">
+              {transitions[item.status].map((status) => <NativeSelectOption key={status} value={status}>{itemLabels[status]}</NativeSelectOption>)}
+            </NativeSelect>
+          </div>)}</CardContent>
+        </Card>;
+      })}</div>}
   </>;
 }
 
@@ -407,6 +471,14 @@ function ReportTable({ title, columns, rows }: { title: string; columns: string[
 
 function AdminView(props: ShellProps) {
   const [tab, setTab] = React.useState("accounts");
+  const allowed = (permission: string) => props.data.user.roleCode === "ADMIN" || props.data.user.permissions.includes(permission);
+  const tabs = [
+    { id: "accounts", title: "Tài khoản", show: allowed("USERS_MANAGE") },
+    { id: "roles", title: "Phân quyền", show: allowed("ROLES_MANAGE") },
+    { id: "floor", title: "Bàn & giá", show: allowed("TABLES_MANAGE") || allowed("PRICES_MANAGE") },
+    { id: "catalog", title: "Danh mục", show: allowed("PRODUCTS_MANAGE") || allowed("MEMBERSHIPS_MANAGE") },
+  ].filter((t) => t.show);
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id;
   const areaOptions = (props.data.areas as Row[]).map((row) => ({ value: row.id, label: row.name }));
   const typeOptions = (props.data.tableTypes as Row[]).map((row) => ({ value: row.id, label: row.name }));
   const categoryOptions = (props.data.categories as Row[]).map((row) => ({ value: row.id, label: row.name }));
@@ -420,17 +492,17 @@ function AdminView(props: ShellProps) {
   const invite = () => props.openForm({ title: "Mời nhân viên", description: "Mã mời chỉ hiển thị một lần và hết hạn sau 72 giờ.", submitLabel: "Tạo mã mời", fields: [{ key: "email", label: "Giới hạn email (không bắt buộc)", type: "email" }, { key: "roleId", label: "Vai trò", type: "select", required: true, options: (props.data.roles as Row[]).filter((role) => role.code !== "ADMIN").map((role) => ({ value: role.id, label: role.name })) }], onSubmit: async (values) => { const response = await props.run("user.invite", values); if (response?.invitationCode) { await navigator.clipboard?.writeText(response.invitationCode); toast.success(`Mã mời: ${response.invitationCode}`, { duration: 15000, description: "Đã sao chép vào bộ nhớ tạm." }); } } });
   const editUser = (row: Row) => props.openForm({ title: `Tài khoản · ${row.full_name}`, fields: [{ key: "fullName", label: "Họ tên", required: true, value: row.full_name }, { key: "phone", label: "Số điện thoại", value: row.phone }, { key: "roleId", label: "Vai trò", type: "select", required: true, value: row.role_id, options: (props.data.roles as Row[]).map((role) => ({ value: role.id, label: role.name })) }, { key: "status", label: "Trạng thái", type: "select", value: row.status, options: [{ value: "ACTIVE", label: "Hoạt động" }, { value: "LOCKED", label: "Khóa" }] }], onSubmit: (values) => props.run("user.update", { ...values, id: row.id }) });
   return <><SectionHeader title="Quản trị hệ thống" description="Tài khoản, phân quyền, mặt bằng, bảng giá và danh mục vận hành." />
-    <Tabs value={tab} onValueChange={setTab}><TabsList className="mb-5 max-w-full overflow-x-auto bg-white p-1"><TabsTrigger value="accounts"><UsersRound />Tài khoản</TabsTrigger><TabsTrigger value="roles"><ShieldCheck />Phân quyền</TabsTrigger><TabsTrigger value="floor"><Table2 />Bàn & giá</TabsTrigger><TabsTrigger value="catalog"><ShoppingBasket />Danh mục</TabsTrigger></TabsList>
+    <Tabs value={activeTab} onValueChange={setTab}><TabsList className="mb-5 max-w-full overflow-x-auto bg-white p-1">{tabs.map((t) => <TabsTrigger key={t.id} value={t.id}>{t.title}</TabsTrigger>)}</TabsList>
       <TabsContent value="accounts"><Card className="gap-0 overflow-hidden py-0"><div className="flex items-center justify-between border-b px-5 py-4"><div><h3 className="font-semibold">Tài khoản nhân viên</h3><p className="text-sm text-muted-foreground">Quản lý vai trò và trạng thái truy cập.</p></div><Button onClick={invite}><Plus />Mời nhân viên</Button></div><Table><TableHeader><TableRow><TableHead>Nhân viên</TableHead><TableHead>Email</TableHead><TableHead>Vai trò</TableHead><TableHead>Trạng thái</TableHead><TableHead>Lần cuối đăng nhập</TableHead><TableHead /></TableRow></TableHeader><TableBody>{(props.data.users as Row[]).map((row) => <TableRow key={row.id}><TableCell className="font-medium">{row.full_name}</TableCell><TableCell>{row.email}</TableCell><TableCell>{row.role_name}</TableCell><TableCell><StatusBadge value={row.status} /></TableCell><TableCell>{dateTime(row.last_login_at)}</TableCell><TableCell className="text-right"><Button size="icon-sm" variant="ghost" onClick={() => editUser(row)}><Pencil /></Button></TableCell></TableRow>)}</TableBody></Table></Card></TabsContent>
       <TabsContent value="roles"><RoleMatrix {...props} /></TabsContent>
-      <TabsContent value="floor"><div className="grid gap-5 xl:grid-cols-2"><AdminList title="Khu vực" rows={props.data.areas} columns={["code", "name"]} onAdd={() => editArea()} onEdit={editArea} onDelete={(row) => props.run("area.delete", { id: row.id })} /><AdminList title="Loại bàn" rows={props.data.tableTypes} columns={["code", "name", "base_hourly_rate"]} format={{ base_hourly_rate: money }} onAdd={() => editType()} onEdit={editType} onDelete={(row) => props.run("tableType.delete", { id: row.id })} /><AdminList title="Bàn bida" rows={props.data.tables} columns={["code", "name", "area_name", "type_name"]} onAdd={() => editTable()} onEdit={editTable} onDelete={(row) => props.run("table.delete", { id: row.id })} /><AdminList title="Khung giá" rows={props.data.priceRules} columns={["type_name", "name", "hourly_rate"]} format={{ hourly_rate: money }} onAdd={() => editPrice()} onEdit={editPrice} onDelete={(row) => props.run("price.delete", { id: row.id })} /></div></TabsContent>
-      <TabsContent value="catalog"><div className="grid gap-5 xl:grid-cols-2"><AdminList title="Nhóm sản phẩm" rows={props.data.categories} columns={["code", "name"]} onAdd={() => editCategory()} onEdit={editCategory} /><AdminList title="Sản phẩm & dịch vụ" rows={props.data.products} columns={["code", "name", "sale_price"]} format={{ sale_price: money }} onAdd={() => editProduct()} onEdit={editProduct} onDelete={(row) => props.run("product.delete", { id: row.id })} /><AdminList title="Hạng hội viên" rows={props.data.tiers} columns={["code", "name", "min_points", "discount_percent"]} onAdd={() => editTier()} onEdit={editTier} /></div></TabsContent>
+      <TabsContent value="floor"><div className="grid gap-5 xl:grid-cols-2">{allowed("TABLES_MANAGE") && <AdminList title="Khu vực" rows={props.data.areas} columns={["code", "name"]} onAdd={() => editArea()} onEdit={editArea} onDelete={(row) => props.run("area.delete", { id: row.id })} />}{allowed("PRICES_MANAGE") && <AdminList title="Loại bàn" rows={props.data.tableTypes} columns={["code", "name", "base_hourly_rate"]} format={{ base_hourly_rate: money }} onAdd={() => editType()} onEdit={editType} onDelete={(row) => props.run("tableType.delete", { id: row.id })} />}{allowed("TABLES_MANAGE") && <AdminList title="Bàn bida" rows={props.data.tables} columns={["code", "name", "area_name", "type_name"]} onAdd={() => editTable()} onEdit={editTable} onDelete={(row) => props.run("table.delete", { id: row.id })} />}{allowed("PRICES_MANAGE") && <AdminList title="Khung giá" rows={props.data.priceRules} columns={["type_name", "name", "hourly_rate"]} format={{ hourly_rate: money }} onAdd={() => editPrice()} onEdit={editPrice} onDelete={(row) => props.run("price.delete", { id: row.id })} />}</div></TabsContent>
+      <TabsContent value="catalog"><div className="grid gap-5 xl:grid-cols-2">{allowed("PRODUCTS_MANAGE") && <AdminList title="Nhóm sản phẩm" rows={props.data.categories} columns={["code", "name"]} onAdd={() => editCategory()} onEdit={editCategory} onDelete={(row) => props.run("category.delete", { id: row.id })} />}{allowed("PRODUCTS_MANAGE") && <AdminList title="Sản phẩm & dịch vụ" rows={props.data.products} columns={["code", "name", "sale_price"]} format={{ sale_price: money }} onAdd={() => editProduct()} onEdit={editProduct} onDelete={(row) => props.run("product.delete", { id: row.id })} />}{allowed("MEMBERSHIPS_MANAGE") && <AdminList title="Hạng hội viên" rows={props.data.tiers} columns={["code", "name", "min_points", "discount_percent"]} onAdd={() => editTier()} onEdit={editTier} />}</div></TabsContent>
     </Tabs>
   </>;
 }
 
 function AdminList({ title, rows = [], columns, format = {}, onAdd, onEdit, onDelete }: { title: string; rows: Row[]; columns: string[]; format?: Record<string, (value: unknown) => string>; onAdd: () => void; onEdit: (row: Row) => void; onDelete?: (row: Row) => void }) {
-  return <Card className="gap-0 overflow-hidden py-0"><div className="flex items-center justify-between border-b px-5 py-4"><h3 className="font-semibold">{title}</h3><Button size="sm" onClick={onAdd}><Plus />Thêm</Button></div><Table><TableHeader><TableRow>{columns.map((column) => <TableHead key={column}>{column.replaceAll("_", " ")}</TableHead>)}<TableHead /></TableRow></TableHeader><TableBody>{rows.length ? rows.map((row) => <TableRow key={row.id}>{columns.map((column) => <TableCell key={column}>{format[column] ? format[column](row[column]) : String(row[column] ?? "-")}</TableCell>)}<TableCell><div className="flex justify-end gap-1"><Button size="icon-sm" variant="ghost" onClick={() => onEdit(row)}><Pencil /></Button>{onDelete && <Button size="icon-sm" variant="ghost" className="text-rose-600" onClick={() => onDelete(row)}><Archive /></Button>}</div></TableCell></TableRow>) : <TableRow><TableCell colSpan={columns.length + 1} className="h-24 text-center text-muted-foreground">Chưa có dữ liệu</TableCell></TableRow>}</TableBody></Table></Card>;
+  return <Card className="gap-0 overflow-hidden py-0"><div className="flex items-center justify-between border-b px-5 py-4"><h3 className="font-semibold">{title}</h3><Button size="sm" onClick={onAdd}><Plus />Thêm</Button></div><Table><TableHeader><TableRow>{columns.map((column) => <TableHead key={column}>{column.replaceAll("_", " ")}</TableHead>)}<TableHead /></TableRow></TableHeader><TableBody>{rows.length ? rows.map((row) => <TableRow key={row.id}>{columns.map((column) => <TableCell key={column}>{format[column] ? format[column](row[column]) : String(row[column] ?? "-")}</TableCell>)}<TableCell><div className="flex justify-end gap-1"><Button size="icon-sm" variant="ghost" aria-label={`Sửa ${row.name ?? title}`} onClick={() => onEdit(row)}><Pencil /></Button>{onDelete && <Button size="icon-sm" variant="ghost" className="text-rose-600" aria-label={`Ngừng sử dụng ${row.name ?? title}`} onClick={() => onDelete(row)}><Archive /></Button>}</div></TableCell></TableRow>) : <TableRow><TableCell colSpan={columns.length + 1} className="h-24 text-center text-muted-foreground">Chưa có dữ liệu</TableCell></TableRow>}</TableBody></Table></Card>;
 }
 
 function RoleMatrix(props: ShellProps) {
@@ -451,7 +523,7 @@ function AuditView(props: ShellProps) {
 
 function ProfileView(props: ShellProps) {
   const edit = () => props.openForm({ title: "Cập nhật hồ sơ", fields: [{ key: "fullName", label: "Họ tên", required: true, value: props.data.user.fullName }, { key: "phone", label: "Số điện thoại", value: props.data.user.phone }], onSubmit: (values) => props.run("profile.update", values) });
-  const password = () => props.openForm({ title: "Đổi mật khẩu", description: "Mật khẩu cần ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.", fields: [{ key: "currentPassword", label: "Mật khẩu hiện tại", type: "password", required: true }, { key: "newPassword", label: "Mật khẩu mới", type: "password", required: true }], onSubmit: (values) => props.run("password.change", values, false) });
+  const password = () => props.openForm({ title: "Đổi mật khẩu", description: "Mật khẩu cần ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.", fields: [{ key: "currentPassword", label: "Mật khẩu hiện tại", type: "password", required: true }, { key: "newPassword", label: "Mật khẩu mới", type: "password", required: true }, { key: "confirmPassword", label: "Nhập lại mật khẩu mới", type: "password", required: true }], onSubmit: (values) => props.run("password.change", values, false) });
   return <><SectionHeader title="Hồ sơ cá nhân" description="Thông tin tài khoản và bảo mật phiên đăng nhập của bạn." />
     <div className="grid gap-5 xl:grid-cols-[.7fr_1.3fr]"><Card className="overflow-hidden border-0 bg-gradient-to-br from-[#0b6b55] to-[#0b2f27] text-white"><CardContent className="grid place-items-center px-6 py-10 text-center"><div className="grid size-20 place-items-center rounded-3xl bg-white/15 text-3xl font-semibold">{props.data.user.fullName.slice(0, 1).toUpperCase()}</div><h3 className="mt-5 text-2xl font-semibold">{props.data.user.fullName}</h3><p className="mt-1 text-emerald-100/70">{props.data.user.roleName}</p><Badge className="mt-5 bg-white/10 text-white">Đang hoạt động</Badge></CardContent></Card><Card><CardHeader><CardTitle>Thông tin tài khoản</CardTitle><CardDescription>Vai trò và quyền không thể thay đổi tại hồ sơ cá nhân.</CardDescription></CardHeader><CardContent className="space-y-5"><div className="grid gap-4 sm:grid-cols-2"><Info label="Họ tên" value={props.data.user.fullName} /><Info label="Email" value={props.data.user.email} /><Info label="Số điện thoại" value={props.data.user.phone || "Chưa cập nhật"} /><Info label="Vai trò" value={props.data.user.roleName} /></div><div className="flex flex-wrap gap-2 border-t pt-5"><Button onClick={edit}><Pencil />Chỉnh sửa hồ sơ</Button><Button variant="outline" onClick={password}><LockKeyhole />Đổi mật khẩu</Button><Button variant="ghost" className="text-rose-600" onClick={props.logout}><LogOut />Đăng xuất</Button></div></CardContent></Card></div>
   </>;
