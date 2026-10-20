@@ -48,8 +48,8 @@ export function createMockD1() {
       try {
         const results = [];
         for (const stmt of statements) {
-          const res = await stmt.run();
-          results.push(res);
+          const info = sqlite.prepare(stmt._query).run(...stmt._params.map((p) => p === undefined ? null : p));
+          results.push({ success: true, meta: { changes: info.changes } });
         }
         sqlite.exec("COMMIT");
         return results;

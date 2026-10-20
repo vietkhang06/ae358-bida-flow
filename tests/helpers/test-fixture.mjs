@@ -1,5 +1,5 @@
 import { createMockD1 } from "./d1-mock.mjs";
-import { env, setTestDb } from "./cf-mock.mjs";
+import { setTestDb } from "./cf-mock.mjs";
 
 export function createJsonRequest(url, method, body, cookie) {
   const headers = new Headers();
