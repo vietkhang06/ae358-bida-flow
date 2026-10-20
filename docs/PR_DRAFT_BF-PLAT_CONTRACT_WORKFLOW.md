@@ -1,6 +1,6 @@
 # Draft PR Body — BF-PLAT Contract and Workflow
 
-> **DRAFT — not opened on GitHub; not merged; does not freeze a binding contract or team policy.**
+> **Historical PR description snapshot for [PR #31](https://github.com/vietkhang06/se358-bida-flow/pull/31), now merged.** It does not freeze a binding contract or team policy; GitHub records no reviewer approvals.
 
 ## 1. Objective
 
@@ -27,19 +27,19 @@ BF-PLAT-01, BF-PLAT-02.
 
 - `app/api/action/route.ts`, `app/api/app/route.ts`, all four `app/api/auth/*/route.ts` handlers, `lib/server.ts`, `db/schema.ts`, `components/bidaflow-app.tsx`, `package.json`, `README.md`.
 - Current repository tree, branch list, Git history, `.gitignore`, and archive `BidaFlow-full-source-v3.zip` (core source matches; package manifest differs by the repository's test script).
-- Task tracker, official SRS, module ownership map, PR template, `.github` CI workflows, and GitHub settings: unavailable/not present in accessible sources; GitHub CLI authentication reports invalid token.
+- Task tracker, official SRS, and module ownership map remain unavailable in the accessible sources. No `.github` workflow or PR template is present. Authenticated repository access was verified, but branch-protection/ruleset/required-check settings were not audited and remain `UNVERIFIED`.
 
 ## 6. Files changed and reason
 
 - `docs/API_ACTION_CONTRACT_DRAFT.md` — source-backed route/action inventory, payload/auth/response/error behavior, examples, and open contract issues.
 - `docs/SHARED_FILE_GIT_WORKFLOW_DRAFT.md` — repo hotspots, task reviewer assignments, draft workflow/checklist, and GitHub configuration gaps.
-- `docs/PR_DRAFT_BF-PLAT_CONTRACT_WORKFLOW.md` — saved PR body because GitHub authentication is unavailable.
+- `docs/PR_DRAFT_BF-PLAT_CONTRACT_WORKFLOW.md` — historical PR #31 description snapshot; its current GitHub status is recorded at the top of the file.
 
 ## 7. Evidence / traceability
 
 - Action names and server checks come from `app/api/action/route.ts`; response/auth helpers from `lib/server.ts`; DB enum declarations from `db/schema.ts`; app response from `app/api/app/route.ts`; consumer helper from `components/bidaflow-app.tsx`.
-- Current branch history shows task-scoped `feature/BF-*` branches and merged PR commits. Remote `origin/HEAD` points to `feature/BF-BASE-01-foundation`, while this task explicitly requests `main` as the PR base.
-- No workflow or PR template exists under `.github/`; GitHub rules/settings could not be audited because the CLI token is invalid.
+- Current branch history shows task-scoped `feature/BF-*` branches and merged PR commits. GitHub reports `main` as the repository default, and PR #31 targeted `main`. The local `origin/HEAD` symbolic ref points to `origin/feature/BF-BASE-01-foundation`, so the local symbolic ref differs from GitHub's verified default.
+- No workflow or PR template exists under `.github/`. Authenticated repository access works, but branch-protection/ruleset/required-check settings have not been audited and remain `UNVERIFIED`.
 
 ## 8. Acceptance criteria checklist
 
@@ -48,7 +48,7 @@ BF-PLAT-01, BF-PLAT-02.
 - [ ] Bùi Vạn Khải verifies the action contracts, permissions, and mismatches.
 - [ ] PM supplies tracker/SRS to verify human module owners, consumer mapping, and acceptance criteria.
 - [ ] Phạm Ngọc Gia Khang reviews ownership workflow and checklist.
-- [ ] PM confirms the requested `main` PR base against the remote default branch discrepancy; repository administrator verifies GitHub settings before policy changes.
+- [ ] Reviewer confirms the `main` base and current PR evidence; repository administrator verifies GitHub settings before any policy changes.
 
 ## 9. Decisions pending
 
@@ -59,9 +59,9 @@ BF-PLAT-01, BF-PLAT-02.
 
 ## 10. Dependencies / blockers
 
-- Depends on BF-PM-02/BF-PM-03 outputs per task instruction; PR1 is still only a local draft, so no PR link exists.
+- Depends on BF-PM-02/BF-PM-03 outputs per task instruction. PR #30 is merged, but its dependent source verification and approvals remain open.
 - Tracker/SRS and GitHub read permission are unavailable; module ownership and repository settings remain pending.
-- GitHub CLI token is invalid; PR2 has not been opened and no URL is available.
+- PR #31 is merged without recorded reviewer approval; the action contract, ownership map, and workflow proposals remain unapproved.
 
 ## 11. Reviewers
 

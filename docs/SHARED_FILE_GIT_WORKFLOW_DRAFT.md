@@ -4,10 +4,10 @@
 
 ## 1. Repository observations
 
-- The repository is a Git checkout with `main`, local/remote `feature/*` branches, and remote `origin` at `https://github.com/vietkhang06/ae358-bida-flow.git`.
+- The canonical repository is `https://github.com/vietkhang06/se358-bida-flow`; the local `origin` URL was updated from the former alias after the authenticated repository lookup resolved it to this canonical repository. `main` and task-scoped `feature/*` branches are present.
 - The recent history includes merged task-scoped work such as `feature/BF-A08-auth-rbac` and `feature/BF-A12-A14-task-coverage`.
-- `origin/HEAD` currently points to `origin/feature/BF-BASE-01-foundation`, while the current instruction explicitly names `main` as the base for both document PRs. Use the task's `main` base for these local draft branches; confirm the repository default/base expectation with PM before opening them remotely.
-- No `.github/` directory, workflow file, or PR template is present in this checkout. GitHub branch protection/ruleset/required-check settings are `UNVERIFIED`: the available GitHub CLI token is invalid, so settings could not be read.
+- GitHub API reports `main` as the repository default; PRs #30 and #31 both used `main`. The local `origin/HEAD` symbolic ref points to `origin/feature/BF-BASE-01-foundation` and differs from that verified GitHub default.
+- No `.github/` directory, workflow file, or PR template is present in this checkout. Authenticated repository access works, but branch protection/ruleset/required-check settings have not been audited and remain `UNVERIFIED`.
 
 ## 2. Shared-file and module map
 
@@ -61,7 +61,7 @@ Checklist is proposed, not a current required merge policy. A repository adminis
 
 ## 6. Pending decisions
 
-- PM: confirm the intended remote default/base branch (`origin/HEAD` currently differs from explicitly requested `main`).
+- PM/repository administrator: confirm why the local `origin/HEAD` symbolic ref differs from GitHub's verified `main` default before relying on local tooling for future base-branch selection.
 - PM/tracker owner: supply a verified module/file owner map and cross-module approval authority.
 - Repository administrator: audit current branch protection, rulesets, and required checks; decide whether the proposed rules should be configured in a separate authorized change.
 - Team: approve or revise branch naming, review, shared-file notification, CI, and merge checklist requirements.
