@@ -1,6 +1,6 @@
 # Use Case Coverage — Draft, Pending Source Verification
 
-> **DRAFT — UNVERIFIED AGAINST THE SRS.** The SRS and task tracker were not available in the workspace when this draft was prepared. This matrix expands the 47 sequential IDs claimed in the current README/coverage summary only to make gaps visible. It does not confirm that the SRS contains exactly these Use Cases, nor that any title, actor, scope, owner, task, WBS ID, or acceptance criterion below is correct.
+> **PROVISIONAL — UNVERIFIED AGAINST THE SRS.** The tracked repository and accessible workspace scan contain no authoritative SRS or task tracker. This matrix expands the 47 sequential IDs claimed in the existing repository coverage summary only to make gaps visible. It does not confirm that the SRS contains exactly these Use Cases, nor that any title, actor, scope, owner, task, WBS ID, or acceptance criterion below is correct. Live issues #1–#5 have empty descriptions and do not supply the missing source list.
 
 The current source document groups Use Cases by subsystem. Its group assignment is preserved below as an existing-document claim, not as independent SRS evidence. Replace `UNVERIFIED` values only after checking the official SRS and tracker. Keep the exact official SRS title and cite its version/section for each row.
 
@@ -59,11 +59,11 @@ The current source document groups Use Cases by subsystem. Its group assignment 
 - The existing coverage source groups UC01–UC06 under “Hệ thống & tài khoản”; it does not give per-Use-Case titles, actors, owners, task IDs, WBS IDs, or criteria.
 - The existing source groups UC46–UC47 together under “Kiểm soát hệ thống” and shows “Nhật ký; Hồ sơ > Đăng xuất”. It does not explicitly map an individual label or owner to UC46 versus UC47. The SRS and tracker are needed to verify the reported UC46/UC47 titles and resolve ownership.
 - The 47 IDs in this table are provisional row labels derived from the existing repository summary. Confirm the count and sequence against the official SRS before treating this as complete coverage.
-- The current repo has four recorded test files, but test names or code behavior are not acceptance criteria from the SRS. Do not use them as a substitute for requirement traceability.
+- Repository tests and code behavior are not acceptance criteria from the SRS. Do not use them as a substitute for requirement traceability.
 
 ## Existing code-level constraints recorded in the previous coverage draft
 
-These are implementation observations from the pre-existing coverage document, not verified SRS requirements:
+These are implementation observations copied from a previous version of this document, not verified SRS requirements. Since the current `main` refactored action handling into operation modules, revalidate every item against the current source before citing it as implementation evidence:
 
 - One table can have at most one `ACTIVE` or `PAUSED` play session.
 - Active reservations for the same table cannot overlap.
