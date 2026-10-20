@@ -17,7 +17,7 @@ Correct stale status statements in the historical description files for merged P
 
 - Read-only GitHub PR checks confirmed #30 and #31 are merged and have no recorded reviews.
 - GitHub API confirmed the canonical repository and `main` default branch.
-- `git diff --check` — run before commit.
+- `git diff --check` passed on the PR branch before commit.
 - No application behavior, schema, repository setting, or task status changed.
 
 Keep this PR in Draft until reviewers confirm the factual corrections.
