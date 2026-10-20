@@ -1,6 +1,6 @@
 # Draft PR Body — BF-PM Governance
 
-> **DRAFT — not opened on GitHub; not merged; not an approved baseline or policy.**
+> **Historical PR description snapshot for [PR #30](https://github.com/vietkhang06/se358-bida-flow/pull/30), now merged.** The documents remain drafts; the merge did not approve a baseline or policy, and GitHub records no reviewer approvals.
 
 ## 1. Objective
 
@@ -32,7 +32,7 @@ BF-PM-01, BF-PM-02, BF-PM-03.
 
 - `docs/USE_CASE_COVERAGE.md` — make 47 provisional IDs and all missing fields reviewable; preserve existing subsystem grouping and code observations.
 - `docs/GOVERNANCE_REVIEW_DRAFT.md` — baseline decision entry, ownership/dependency dictionary, DoD, and schedule/scope change rules.
-- `docs/PR_DRAFT_BF-PM_GOVERNANCE.md` — saved PR body because GitHub authentication is unavailable.
+- `docs/PR_DRAFT_BF-PM_GOVERNANCE.md` — historical PR #30 description snapshot; its current GitHub status is recorded at the top of the file.
 
 ## 7. Evidence / traceability
 
@@ -58,7 +58,7 @@ BF-PM-01, BF-PM-02, BF-PM-03.
 
 - BF-PM-03 depends on BF-PM-01 and BF-PM-02.
 - The missing SRS, Charter, Schedule, WBS, and tracker prevent full acceptance.
-- PR1 is a local draft only; GitHub token is invalid, so no remote PR URL exists.
+- PR #30 is merged. Sponsor approval for BF-PM-01, PM/reviewer validation of the SRS/WBS/tracker mapping, and approval of proposed governance controls remain pending.
 
 ## 11. Reviewers
 
