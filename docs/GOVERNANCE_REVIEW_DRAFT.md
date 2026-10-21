@@ -1,88 +1,69 @@
-# Governance Review Draft — BF-PM-01 / BF-PM-02 / BF-PM-03
+# Governance Decision and Work Breakdown Draft — BF-PM-01 / 02 / 03
 
-> **DRAFT — FOR PM / REVIEWER REVIEW.** No sponsor or team approval is implied. The SRS, Charter, Project Schedule, WBS, Decision Log, and tracker were not available in the accessible workspace. Fields that depend on those sources remain `UNVERIFIED` or `PENDING`.
+> **PROPOSED — PENDING SOURCE VERIFICATION AND REVIEW.** This document is a review artifact, not an approved baseline, WBS, tracker, sponsor decision, or adopted policy. It records repository evidence and task assignments supplied in the PM authorization. The official Charter, Project Schedule, SRS, WBS, decision log, and tracker are not present in the tracked repository or accessible workspace sources checked for this work.
 
-Owner: Đoàn Việt Khang (assignment supplied in the task instruction).
-
-| Task | Reviewer from current assignment | Dependency from current assignment | Draft status |
-| --- | --- | --- | --- |
-| BF-PM-01 | Phạm Ngọc Gia Khang | None stated | `PROPOSED — PENDING SPONSOR APPROVAL` |
-| BF-PM-02 | Bùi Vạn Khải | None stated | `PENDING SRS + TRACKER VERIFICATION` |
-| BF-PM-03 | Bùi Vạn Khải | BF-PM-01 and BF-PM-02 | `DRAFT — PENDING PM REVIEW` |
+Repository: `vietkhang06/se358-bida-flow`; base snapshot: `origin/main` at `74307d4f27c406b5bfb02183ea57d350d6dd73a6` (2026-10-20 audit). Live GitHub issues #1–#3 have the matching task titles, are OPEN, are assigned to `vietkhang06` (Đoàn Việt Khang), and have empty descriptions. Issue state is evidence only; no tracker or Project status was changed. The GitHub CLI Project listing returned `unknown owner type`, so Project board fields could not be verified.
 
 ## BF-PM-01 — Schedule baseline discrepancy
 
-### Source and milestone inventory
+### Evidence and limits
 
-| Source | Version / source status | Date claim | Milestone meaning | Verification |
-| --- | --- | --- | --- | --- |
-| Project Charter | File/version unavailable | The task instruction supplies a lead that the Charter may state completion/acceptance no later than **25/12/2026** | Exact wording and milestone meaning unavailable | `UNVERIFIED — original Charter not found` |
-| Project Schedule | File/version unavailable | The task instruction supplies a lead that **A20 acceptance/closure** may be dated **30/11/2026** | Exact A20 definition, predecessor/successor links, and baseline status unavailable | `UNVERIFIED — original Schedule not found` |
-| WBS / tracker | Not found | No date or A20 mapping available | Work packages, duration, dependency, release, test, and UAT links unavailable | `UNVERIFIED` |
+| Source | What is available | Claim | Verification status |
+| --- | --- | --- | --- |
+| Project Charter | No authoritative file/version in repository/workspace scan | User-provided lead: acceptance/completion may be 25/12/2026 | `UNVERIFIED` — exact wording, date, and milestone meaning unavailable |
+| Project Schedule | No authoritative file/version in repository/workspace scan | User-provided lead: A20 acceptance/closure may be 30/11/2026 | `UNVERIFIED` — exact wording, date, dependencies, and baseline status unavailable |
+| WBS/tracker | No authoritative file; issues #1–#3 have no body | No authoritative activity chain or planned dates | `UNVERIFIED` |
 
-These dates are recorded only as leads from the user-provided instruction. They have not been verified against the named source documents and are not adopted here as an official baseline.
+These are unverified leads, not source-verified facts. If they refer to the same gate, the dates differ by 25 calendar days; if they refer to distinct gates, their definitions and dependencies must be confirmed from the source documents. No date is adopted, no baseline is changed, and no schedule/tracker value is synchronized by this proposal.
 
-### Discrepancy and decision options
+### Decision record proposal
 
-If both source documents define the same acceptance/closure milestone, 30/11/2026 and 25/12/2026 differ by 25 calendar days and conflict. If the documents define different gates, their meanings and dependencies need to be stated explicitly. The available evidence does not determine which case applies.
+**Decision:** determine whether the cited Charter acceptance date and Schedule A20 date represent the same acceptance/closure gate; approve one governing baseline or document two distinct gates and their evidence/dependencies.
 
-1. **Keep the Charter date (25/12/2026) as the governing target:** after sponsor approval, update A20 and all dependent planned dates in Schedule/WBS/tracker. Recalculate test duration, release readiness, and UAT windows from the actual dependency chain. Impact cannot be quantified without the missing schedule and WBS; a later A20 may move dependent work.
-2. **Keep A20 at 30/11/2026 as the governing target:** after sponsor approval, confirm whether the Charter commitment must be amended or whether it represents a distinct outer deadline. Recalculate predecessor work, testing, release, and UAT feasibility; the nominal interval to 25/12/2026 is 25 days, but it is not a verified test/UAT buffer.
-3. **Confirm two distinct gates only if the original documents support that interpretation:** document each milestone's acceptance evidence, owner, and dependencies. This option uses only the two dates already cited; it does not introduce another baseline or date.
+**Authority:** sponsor approval is required for an official baseline decision. Sponsor identity/authority is not evidenced in repository sources. PM Đoàn Việt Khang coordinates the comparison; the assigned independent reviewer is Phạm Ngọc Gia Khang. **Status: `PROPOSED — PENDING SPONSOR APPROVAL`.**
 
-### Draft recommendation and decision record
+**Options to evaluate after source receipt:** (1) retain the Charter milestone as governing and reconcile A20 and dependent dates; (2) retain A20 and determine whether Charter wording/date must be amended or denotes a separate deadline; (3) document separate gates only if the source wording supports that interpretation. Assess test, release, and UAT impact from the actual WBS dependency chain; do not treat the arithmetic 25-day interval as available float.
 
-**Recommendation:** do not modify either official source or synchronize a tracker date until the Charter and Schedule wording, versions, and A20 dependency chain are available. Then ask the sponsor to choose option 1, 2, or 3. This recommendation preserves existing source values and is not an approval of either date.
+**Evidence required to decide:** versioned Charter and Schedule with exact milestone passages; WBS/tracker predecessor and successor links; sponsor decision with approver, date, rationale, and affected artifacts. Until then, dependent planned dates remain `PENDING BASELINE DECISION`.
 
-> **Decision Log entry (proposed):** `PROPOSED — PENDING SPONSOR APPROVAL`. Decision: resolve whether Charter 25/12/2026 and Schedule A20 30/11/2026 refer to the same acceptance/closure gate, and approve the governing date or distinct gate definitions. Decision authority: project sponsor (name `UNVERIFIED`); PM Đoàn Việt Khang coordinates. Evidence required: exact Charter/Schedule versions and wording, WBS predecessor/successor chain, testing/release/UAT estimates. Next action: obtain those source files, validate milestone semantics and dependencies, then record sponsor decision and approval date before changing official dates.
+**After approval:** update only fields expressly covered by the recorded decision; preserve actual dates separately; recalculate affected test/release/UAT dates from verified dependencies; record the decision in the authoritative log and synchronize authorized schedule/tracker artifacts. Those external artifacts are not accessible here and were not edited.
 
-### Files/fields to update after a sponsor decision
+## BF-PM-02 — Use Case list and UC47 ownership
 
-- Update only the source fields explicitly covered by the sponsor decision: Charter milestone wording/date if directed; Schedule A20 date and dependencies; WBS activity dates/durations; tracker planned/baseline fields; Decision Log decision, approver, date, rationale, and affected artifacts.
-- Recalculate testing, release, and UAT dates from source dependencies. Preserve actual dates separately from planned dates and the approved baseline.
-- Until approval, dependent schedule/tracker values must be labelled `PENDING BASELINE DECISION`. Do not replace 30/11 with 25/12 or create a third date.
+[`docs/USE_CASE_COVERAGE.md`](USE_CASE_COVERAGE.md) contains provisional UC01–UC47 rows expanded from the existing repository coverage summary. The README/summary is not an SRS. No authoritative SRS or task tracker was found, and issues #1–#3 do not contain task details. Accordingly, neither the claimed count of 47 nor official titles, actors, owners, subsystem mapping, acceptance references, completeness, duplicates, or UC46/UC47 assignment can be verified. Existing summary grouping only places UC46 and UC47 together in “Kiểm soát hệ thống” and mentions “Nhật ký; Hồ sơ > Đăng xuất”; this does not establish individual mappings or ownership.
 
-## BF-PM-02 — Use Case completeness and UC46/UC47 ownership
+**Required reconciliation:** PM supplies the versioned SRS/Use Case source and tracker; reviewer Bùi Vạn Khải checks each exact ID/title/actor/subsystem against source sections and tracker owner/task/WBS/acceptance references, then records gaps, duplicate IDs/titles, missing owners, and naming differences. UC47 ownership remains `UNVERIFIED — PENDING SRS + TRACKER`; do not infer it from implementation or the task owner.
 
-`docs/USE_CASE_COVERAGE.md` now exposes provisional UC01–UC47 rows, while retaining the groups from the existing repository summary. The current repository does not include the SRS or task tracker. Therefore the exact 47-Use-Case count, each official title, actor, owner, WBS/task mapping, acceptance criterion, and UC46/UC47 ownership remain unverified. The summary groups UC46 and UC47 together and cannot resolve which person or task owns either one.
+**Implementation evidence is separate:** source files may demonstrate existing capabilities but cannot establish the intended Use Case inventory. Current implementation observations are labelled as such in the coverage matrix and do not close source verification.
 
-**Required review action:** compare each row with the official SRS version and tracker; cite SRS section/requirement and tracker task ID; report missing/duplicate IDs, title differences, unowned rows, and conflicting assignments. Keep owner/reviewer assignment for the five governance/platform tasks as supplied by the current instruction; do not infer individual Use Case owners from those task assignments.
+## BF-PM-03 — WBS/activity dictionary and baseline controls
 
-## BF-PM-03 — WBS, owner map, dependencies, DoD, and schedule controls
+The IDs, assignments, priorities, estimates, and dependencies below were supplied directly in the task authorization. They are **authorization-supplied**, not reconciled to an authoritative project WBS/tracker. Preserve the given IDs in this proposal and validate them against the source before representing them as the official WBS.
 
-The source WBS and tracker were not found. The dictionary below is therefore a control draft, not a validated WBS/activity mapping. Do not normalize or invent missing WBS IDs.
+| Task / activity | WBS / Activity ID | Deliverable | Owner | Independent reviewer | Dependency | Priority / estimate | Definition of Done proposal | Evidence / current GitHub issue |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| BF-PM-01 / PM-01 | 1.1 / PM-01 | Decision record for baseline date discrepancy | Đoàn Việt Khang | Phạm Ngọc Gia Khang | None stated | Critical / 2 h | Charter and Schedule versions/wording compared; sponsor decision recorded with authority/date/evidence before official baseline alignment | This document; issue #1 OPEN, title matches, no description |
+| BF-PM-02 / PM-02 | 1.1 / PM-02 | Reconciled Use Case coverage matrix | Đoàn Việt Khang | Bùi Vạn Khải | None stated | Critical / 2 h | Every source Use Case matched to its tracker owner/task/acceptance reference; discrepancies and UC47 resolved with citations | `docs/USE_CASE_COVERAGE.md`; issue #2 OPEN, title matches, no description |
+| BF-PM-03 / PM-03 | 1.1 / PM-03 | Validated WBS/activity dictionary, owner map, and update rules | Đoàn Việt Khang | Bùi Vạn Khải | BF-PM-01 and BF-PM-02 | High / 2 h | IDs/fields/dependencies reconciled to authoritative tracker; acyclic dependency graph; approved update rules documented; unknown owners remain unassigned | This table and rules below; issue #3 OPEN, title matches, no description |
+| BF-PLAT-01 / PLAT-01 | 1.2 / PLAT-01 | Source-reconciled API/action contract | Đoàn Việt Khang | Bùi Vạn Khải | BF-PM-02 | Critical / 3 h | Current action/route behavior traced; provider/consumer confirmation recorded before contract is called frozen | `docs/API_ACTION_CONTRACT_DRAFT.md`; issue #4 OPEN, title matches, no description |
+| BF-PLAT-02 / PLAT-02 | 1.2 / PLAT-02 | Evidence-based shared-file map and Git workflow | Đoàn Việt Khang | Phạm Ngọc Gia Khang | BF-PM-03 | High / 2 h | Responsibility evidence separated from proposed owners; usable workflow reviewed; settings claims verified or marked unknown | `docs/SHARED_FILE_GIT_WORKFLOW_DRAFT.md`; issue #5 OPEN, title matches, no description |
 
-| Deliverable / activity | WBS / Activity ID | Task ID | Owner | Reviewer | Dependency | Acceptance evidence |
-| --- | --- | --- | --- | --- | --- | --- |
-| Baseline discrepancy analysis and decision record | `UNVERIFIED` | BF-PM-01 | Đoàn Việt Khang | Phạm Ngọc Gia Khang | None stated | Source versions/wording recorded; options and effects reviewed; sponsor decision recorded before baseline change |
-| Full Use Case reconciliation | `UNVERIFIED` | BF-PM-02 | Đoàn Việt Khang | Bùi Vạn Khải | None stated | 47 SRS rows cross-checked; exact title, actor, requirement, tracker owner/task, and discrepancies cited |
-| WBS/activity dictionary and schedule controls | `UNVERIFIED` | BF-PM-03 | Đoàn Việt Khang | Bùi Vạn Khải | BF-PM-01 and BF-PM-02 | WBS IDs reconciled to source; dependencies cited; update rules distinguish proposal from approved baseline |
-| API/action contract | `UNVERIFIED` | BF-PLAT-01 | Đoàn Việt Khang | Bùi Vạn Khải | Governance outputs, especially BF-PM-02/03 (per task instruction) | Action/API behavior traced to source and unresolved contracts marked |
-| Shared-file ownership and Git workflow | `UNVERIFIED` | BF-PLAT-02 | Đoàn Việt Khang | Phạm Ngọc Gia Khang | Governance outputs, especially BF-PM-02/03 (per task instruction) | Repo hotspots cited; role ownership separated from proposal; draft checklist reviewable |
+The five issue mappings above were checked against exact live GitHub issue titles #1–#5; all are OPEN and assigned to the task owner. The issue descriptions are empty. Their GitHub Project status was not available to verify; no status is recommended as a live value here. This table does not close dependencies or imply task acceptance.
 
-### Proposed Definition of Done for these documentation tasks
+### Proposed documentation Definition of Done
 
-This DoD is a proposal for PM/reviewer approval, not an adopted project policy:
+Pending PM/reviewer adoption: (1) each factual claim cites its source version and file/section or code path; (2) unknowns remain visibly `UNVERIFIED`/`PENDING`; (3) required independent reviewer records review in the team's confirmed system; (4) task-specific acceptance evidence is attached; (5) Markdown links resolve, `git diff --check` passes, and scope contains only the task documents; (6) any baseline-dependent value remains pending sponsor evidence.
 
-- Each factual claim has a source file/version and, where practical, section/line or code path.
-- Unknown values are marked `UNVERIFIED`/`PENDING`; no missing owner, WBS ID, requirement, or approval is inferred.
-- Reviewer checks assigned to that Task ID and records requested changes or approval in the team's agreed system (system/location `UNVERIFIED`).
-- Required artifact-specific acceptance criteria are checked; document diff passes `git diff --check`; no code or credential changes are included.
-- Baseline-dependent fields remain `PENDING BASELINE DECISION` until sponsor approval is evidenced.
+### Proposed dependency and baseline change control
 
-### Proposed schedule and scope change rules
+These are proposals, not current controls. Dependencies must match the authoritative tracker; validate the graph for cycles and report contradictions instead of silently changing them. For a baseline/scope request: record requester/date/reason; impacted requirement, UC, WBS/task IDs; predecessor/successor, effort, test/release/UAT and risk impact; options; decision authority; and supporting evidence. Obtain the authorized decision before editing the approved baseline. Then log approver, date, rationale, version, and affected artifacts; update approved schedule/WBS/tracker fields consistently; preserve actual and prior-baseline values; notify affected owners. The precise escalation route and decision-log system remain `UNVERIFIED` pending the governance source and PM confirmation.
 
-Draft rules for team decision:
+## Open decisions and approval gates
 
-1. Record each schedule change with date, reason, proposer, affected task/activity IDs, dependency impact, and source/evidence.
-2. Keep actual, planned, and approved-baseline dates in distinct fields; never overwrite an actual date with a plan or proposal.
-3. A baseline date changes only after sponsor approval. The PM records approver, approval date, rationale, and affected documents before synchronizing schedule/WBS/tracker.
-4. If BF-PM-01 is still open, any dependent field reads `PENDING BASELINE DECISION`; no value is synchronized from an unapproved proposal.
-5. Scope/deadline change requests list the requested change, reason, affected requirements/Use Cases, WBS/tasks, dependencies, test/release/UAT impact, and decision authority. The sponsor (for baseline/scope decisions) accepts or rejects; PM records the outcome. Exact escalation mechanics are pending the project governance source.
+- **Sponsor (BF-PM-01):** provide authoritative Charter/Schedule versions and decide milestone semantics and baseline; no official date is selected here.
+- **PM/tracker owner (BF-PM-02/03):** provide versioned SRS, WBS, and tracker; confirm all IDs, titles, actors, owner/reviewer, dependencies, DoD, and UC47 owner.
+- **Bùi Vạn Khải:** independently reconcile the Use Case matrix and WBS/dependency map when those sources are supplied.
+- **Phạm Ngọc Gia Khang:** review BF-PM-01 decision record; no sponsor approval is implied by reviewer assignment.
+- **PM/reviewers:** decide whether the proposed DoD/change-control rules should be adopted.
 
-## Decisions and blockers for review
-
-- **Sponsor:** provide the authoritative Charter/Schedule versions and decide whether the two milestone claims conflict or denote separate gates. No baseline edit is proposed as effective.
-- **PM Đoàn Việt Khang:** provide the official SRS, WBS, and tracker (including Task ID, owner, reviewer, dependencies, deliverable, acceptance criteria, blocker/risk) so the coverage and activity map can be verified.
-- **Reviewer Bùi Vạn Khải:** review provisional coverage rows and identify the authoritative assignment/source for UC46 and UC47 once the tracker/SRS are available.
-- **Reviewers:** confirm whether proposed DoD and schedule/scope update rules should be adopted; they remain draft.
+Until those gates are met, BF-PM-01 is `BLOCKED` on source and sponsor authority, BF-PM-02 is `BLOCKED` on SRS/tracker verification, and BF-PM-03 is `IN PROGRESS — PROVISIONAL` and depends on PM-01/02. These are evidence-based recommendations; no GitHub status was changed.
