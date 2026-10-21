@@ -1,6 +1,6 @@
 # BidaFlow API / Action Contract — Source Inventory Draft
 
-> **DRAFT — VERIFIED AGAINST SOURCE SNAPSHOT `b9ae689` (`main`), PENDING VẠN KHẢI REVIEW.** This records handler behavior found in the repository at preparation time. It is not a promise that behavior is approved as a product contract. Human module/file owners and SRS requirement mappings are `UNVERIFIED` because the tracker and SRS were unavailable. No handler was changed.
+> **CODE-OBSERVED DRAFT — VERIFIED AGAINST `origin/main` SNAPSHOT `74307d4f27c406b5bfb02183ea57d350d6dd73a6` (2026-10-20), PENDING PROVIDER/CONSUMER AND REVIEWER CONFIRMATION.** This records current implementation behavior, not an approved product contract. Human module/file owners and SRS/Use Case mappings remain `UNVERIFIED`; the tracker and SRS are unavailable. No application code was changed for this documentation task.
 
 ## 1. Scope and source map
 
@@ -11,22 +11,22 @@
 | `/api/auth/register` | POST | First admin registration or invite-based registration | Same-origin check; setup code or valid invitation | [register route](../app/api/auth/register/route.ts) |
 | `/api/auth/logout` | POST | Delete current session and clear cookie | Same-origin check; can clear cookie without a current user | [logout route](../app/api/auth/logout/route.ts) |
 | `/api/app` | GET | Permission-filtered app snapshot and optional reports | `requireUser`; each dataset is filtered by permission | [app route](../app/api/app/route.ts) |
-| `/api/action` | POST | Dispatcher for 41 action names listed below | Same-origin check, `requireUser`, then per-action `requireAny` where present | [action route](../app/api/action/route.ts) |
+| `/api/action` | POST | Dispatcher for 42 action names listed below | Same-origin check, `requireUser`, permission map for delegated operations plus legacy per-case checks | [action route](../app/api/action/route.ts), [operation map](../lib/operations.ts) |
 
-The only API route files found under `app/api/` are the six above. The generic UI caller is `components/bidaflow-app.tsx`: it sends `{ action, payload }` to `/api/action`, reads `response.data`, refreshes `/api/app` by default, and displays `json.error` on failure. Human module owners and code-area owners are not identifiable from source; see the separate shared-file ownership draft.
+The only API route files found under `app/api/` are the six above. `components/bidaflow-app.tsx` contains a generic `run(action, payload)` caller, direct UI callers, and connector operation adapters; it sends `{ action, payload }`, reads `response.data`, normally refreshes `/api/app`, and displays `json.error` on failure. The current dispatcher delegates 24 names through `operationPermissions` to catalog, reservation, session, and order action modules; it handles 18 additional names in its switch. Those counts are source-derived and total 42. Human module owners and code-area owners are not identifiable from source; see the separate shared-file ownership draft.
 
 ## 2. Shared request, response, and authorization behavior
 
 ### `/api/action`
 
-Request: `POST` JSON `{ "action": "<action-name>", "payload": { ... } }`. `payload` defaults to `{}`. The TypeScript `Body` annotation is a compile-time cast; the route does not apply a runtime schema validator to the full request. Common helpers convert missing number values to `0`, trim string values, and convert empty optional strings to `null`. Individual handler checks are listed below.
+Request: `POST` JSON `{ "action": "<action-name>", "payload": { ... } }`. `payload` defaults to `{}`. The TypeScript `Body` annotation is a compile-time cast; the route does basic runtime checks for a string action and an object payload (not an array), but there is no single full-request/per-action schema. The 24 delegated operations use `lib/operation-validation.ts` helpers (`required`, typed `text`, bounded `numeric`, offset-required `timestamp`); the 18 legacy cases use local helpers and case-specific checks. Missing-number-to-zero behavior therefore applies only to the legacy helper paths and is not a contract-wide default.
 
 Successful response: `200 { "ok": true, "data": <result> }`. For actions without an explicit `result`, `data` is `null`. Exceptions are the action-specific result objects in the table.
 
 ### Authorization / origin
 
 - All `/api/action` requests call `assertSameOrigin` and `requireUser` before dispatch. If an `Origin` header is present and differs from the request URL origin, the handler returns an `AppError` with status `403`; an absent Origin header is accepted by this helper.
-- `requireAny` checks the listed permission and allows `ADMIN` as a bypass. `requireUser` returns `401` when unauthenticated and `403` when a requested permission is missing.
+- `requireUser` returns `401` when unauthenticated. Delegated operation permissions are mapped in `lib/operations.ts`; `ADMIN` bypasses them. The dispatcher’s remaining switch cases call `requireAny` where applicable, also with an `ADMIN` bypass. In addition, `session.pause`, `session.resume`, and `session.transfer` contain role-code checks that limit them to `ADMIN`, `MANAGER`, and `CASHIER` even if a permission is present.
 - `profile.update` and `password.change` have no action-specific permission check in the dispatcher; they still require an authenticated user. Their server code binds the update to that current user's ID.
 - Role permission definitions and default role assignments are in [server authorization](../lib/server.ts). They are implementation data, not a tracker-based ownership map.
 
@@ -38,13 +38,15 @@ Successful response: `200 { "ok": true, "data": <result> }`. For actions without
 | Unauthenticated | 401 | Error envelope from `requireUser` / `responseError` |
 | Permission or origin rejected | 403 | Error envelope from `requireUser` / `assertSameOrigin` |
 | Unsupported action string | 404 | `{ "error": "Thao tác không được hỗ trợ." }` |
+| Invalid JSON / invalid top-level action or payload shape | 400 | `AppError` message through `responseError`; see request checks in the current dispatcher |
+| Delegated missing record / uniqueness or changed-state conflict | 404 or 409 in operation helpers | Current error envelope; several legacy validations still use default 400 |
 | Unique constraint exception in `/api/action` | 400 | Generic duplicate/state-changed Vietnamese message |
 | Foreign-key exception in `/api/action` | 400 | Generic related-data message |
 | Other unhandled exception | 500 | `{ "error": "Hệ thống đang bận. Vui lòng thử lại." }`; server logs the exception |
 | `/api/auth/register` missing setup configuration | 503 | `AppError` message |
 | `/api/auth/register` duplicate email | 409 | `AppError` message |
 
-No stable `error.code`, field-error collection, or request/correlation ID is emitted by these handlers. Some resource/state validation failures use the default 400 even when they could be distinguished as not-found or conflict. A malformed JSON body is not explicitly handled as a client error and can fall through to the generic 500 path. These are observations from the shared server helper and route catches, not a proposal to change runtime behavior.
+No stable `error.code`, field-error collection, or request/correlation ID is emitted by these handlers. Some resource/state validation failures use the default 400 even when they could be distinguished as not-found or conflict. Malformed JSON is caught by the current dispatcher and returned as a default-status 400 `AppError`; it does not intentionally fall through to the generic 500 path. Error conditions and status codes differ between delegated modules and legacy switch cases. These are observations from current source, not a proposal to change runtime behavior.
 
 ### Proposed normalization (not implemented / not binding)
 
@@ -66,7 +68,7 @@ The session cookie is named `bidaflow_session`, has `HttpOnly`, `Secure`, `SameS
 
 ## 4. Action inventory
 
-Provider for all rows: `POST /api/action` in `app/api/action/route.ts`. Consumer: `components/bidaflow-app.tsx` generic `run(action, payload)`; task-specific module owner and SRS/UC mapping are `UNVERIFIED`. Required fields below are those read through the route's `required()` helper; fields listed as optional/default reflect current fallback behavior, not a formal runtime schema. The handler has 41 action names, with `session.start` and `reservation.seat` sharing an implementation block.
+Provider for all rows: `POST /api/action` in `app/api/action/route.ts`, with 24 operations delegated through `lib/operations.ts` and 18 remaining switch cases. Consumers observed in `components/bidaflow-app.tsx` include its generic `run(action, payload)`, UI action handlers, and connector operation adapters. Task-specific provider/consumer owners and SRS/UC mappings are `UNVERIFIED`. Required and optional/default fields below reflect current handler reads and validation, not a formally approved runtime schema. Current implementation exposes 42 names; `session.start` and `reservation.seat` share one implementation block.
 
 ### Account, areas, tables, and pricing
 
@@ -77,34 +79,35 @@ Provider for all rows: `POST /api/action` in `app/api/action/route.ts`. Consumer
 | `user.invite` | `roleId` | `email` | `USERS_MANAGE` | `{ invitationCode, expiresAt }`; role must exist; invitation expiry is 72 hours. Code is returned once; only its hash is stored. |
 | `user.update` | `id`, `roleId`, `fullName` | `phone`; `status` defaults to `ACTIVE` unless exactly `LOCKED` | `USERS_MANAGE` | `null`; prevents current user locking self; locking target deletes their sessions. |
 | `role.permissions` | `roleId` | `permissionCodes` defaults to `[]` | `ROLES_MANAGE` | `null`; `role_admin` cannot be reduced by this action. The handler replaces role links using codes found in the permission table; unknown codes are not inserted. |
-| `area.save` | `code`, `name` | `id`, `description`, `sortOrder` default `0` | `TABLES_MANAGE` | `null`; code is uppercased; insert or update. |
-| `area.delete` | `id` | — | `TABLES_MANAGE` | `null`; soft-deactivates; rejects while an active table uses the area. |
-| `tableType.save` | `code`, `name` | `id`, `description`, `baseHourlyRate` default `0`, `color` default `#16a085` | `PRICES_MANAGE` | `null`; rate cannot be negative; code uppercased. |
-| `tableType.delete` | `id` | — | `PRICES_MANAGE` | `null`; soft-deactivates; rejects while an active table uses the type. |
-| `table.save` | `code`, `name`, `areaId`, `tableTypeId` | `id`, `notes`, `sortOrder` default `0` | `TABLES_MANAGE` | `null`; insert or update. |
-| `table.delete` | `id` | — | `TABLES_MANAGE` | `null`; soft-deactivates; rejects an active session or DRAFT/ISSUED invoice for that table. |
-| `table.status` | `id`, `status` | — | `TABLE_STATUS` | `null`; status limited to `AVAILABLE`, `RESERVED`, `MAINTENANCE`; rejects a table with active/paused session. |
-| `price.save` | `tableTypeId`, `name` | `id`, `daysMask` default `127`, `startMinute` default `0`, `endMinute` default `1440`, `hourlyRate` default `0`, `priority` default `0`, `effectiveFrom`, `effectiveTo` | `PRICES_MANAGE` | `null`; rate >= 0, minutes within 0–1440 and start < end; checks overlap at same priority. |
-| `price.delete` | `id` | — | `PRICES_MANAGE` | `null`; soft-deactivates rule. |
+| `area.save` | `code`, `name` | `id`, `description`, `sortOrder` default `0` | `TABLES_MANAGE` | `{ id }`; typed string checks, uniqueness check; insert/update. |
+| `area.delete` | `id` | — | `TABLES_MANAGE` | `{ id }`; soft-deactivates only when no active table references the area. |
+| `tableType.save` | `code`, `name` | `id`, `description`, `baseHourlyRate` default `0`, `color` default `#16a085` | `PRICES_MANAGE` | `{ id }`; code uppercased; nonnegative integer rate; color must be `#RRGGBB`; uniqueness check. |
+| `tableType.delete` | `id` | — | `PRICES_MANAGE` | `{ id }`; soft-deactivates only when no active table references the type. |
+| `table.save` | `code`, `name`, `areaId`, `tableTypeId` | `id`, `notes`, `sortOrder` default `0` | `TABLES_MANAGE` | `{ id }`; area/type must be active; cannot change table area/type while it has an active/paused session; insert/update. |
+| `table.delete` | `id` | — | `TABLES_MANAGE` | `{ id }`; soft-deactivates only with no active session, issued/draft invoice, or pending/confirmed future reservation. |
+| `table.status` | `id`, `status` | — | `TABLE_STATUS` | `{ id }`; status limited to `AVAILABLE`, `RESERVED`, `MAINTENANCE`; state must match current booking and no active/paused session. |
+| `price.save` | `tableTypeId`, `name`, `hourlyRate` | `id`, `daysMask` default `127`, `startMinute` default `0`, `endMinute` default `1440`, `priority` default `0`, offset-bearing `effectiveFrom`, `effectiveTo` | `PRICES_MANAGE` | `{ id }`; rate/minutes/priority are integers; days mask 1–127, start 0–1439, end 1–1440, start < end; checks temporal overlap at same priority. |
+| `price.delete` | `id` | — | `PRICES_MANAGE` | `{ id }`; soft-deactivates rule. |
 
 ### Reservations, sessions, products, and orders
 
 | Action | Required payload | Optional / defaults | Server permission | Success `data` / key current checks |
 | --- | --- | --- | --- | --- |
-| `reservation.save` | `tableId`, `startsAt`, `endsAt`, `customerName`, `customerPhone` | `id`, `customerId`, `guestCount` default/minimum `1`, `status` default `PENDING`, `notes` | `RESERVATIONS_MANAGE` | `null`; end must follow start; active PENDING/CONFIRMED reservation overlap is rejected. |
-| `reservation.status` | `id`, `status` | — | `RESERVATIONS_MANAGE` | `null`; accepted values `PENDING`, `CONFIRMED`, `CANCELLED`, `NO_SHOW`; update excludes `SEATED` rows. |
-| `session.start` | `tableId` | `customerId`, `notes` | `SESSIONS_MANAGE` | `{ sessionId }`; active table must be AVAILABLE or RESERVED; snapshots active rate. |
-| `reservation.seat` | `reservationId` | — | `SESSIONS_MANAGE` | `{ sessionId }`; reservation must be PENDING/CONFIRMED; its table must be AVAILABLE or RESERVED; reservation becomes SEATED. |
-| `session.pause` | `sessionId` | `reason` | `SESSIONS_MANAGE` | `null`; only ACTIVE session with an open segment can pause. |
-| `session.resume` | `sessionId` | — | `SESSIONS_MANAGE` | `null`; only PAUSED session can resume; closes open pause. |
-| `session.transfer` | `sessionId`, `toTableId` | `reason` | `SESSIONS_MANAGE` | `null`; session must be ACTIVE/PAUSED; target must be AVAILABLE; closes old segment and creates a new rate segment; handler sets session status to ACTIVE after transfer, including when it was PAUSED. |
-| `session.end` | `sessionId` | — | `SESSIONS_MANAGE` | `{ tableAmount }`; closes open segment and order; session must be ACTIVE/PAUSED. |
-| `category.save` | `code`, `name` | `id`, `sortOrder` default `0` | `PRODUCTS_MANAGE` | `null`; code uppercased. |
-| `product.save` | `code`, `name` | `id`, `categoryId`, `kind` (`SERVICE` only when exact, otherwise `PRODUCT`), `unit` default `phần`, `salePrice`/`costPrice`/`minStock` default `0`, `trackStock` default true | `PRODUCTS_MANAGE` | `null`; prices and minimum stock cannot be negative. |
-| `product.delete` | `id` | — | `PRODUCTS_MANAGE` | `null`; soft-deactivates. |
-| `order.add` | `sessionId`, `productId`, `quantity` | `notes` | `ORDERS_MANAGE` | `null`; quantity > 0; session active/paused; product active; checks available stock when tracked. |
-| `order.item.update` | `itemId`, `quantity` | `notes` | `ORDERS_MANAGE` | `null`; quantity > 0; served/cancelled item cannot be edited. |
-| `order.item.status` | `itemId`, `status` | — | `ORDERS_MANAGE` | `null`; status `PENDING`, `PREPARING`, `SERVED`, or `CANCELLED`; served item cannot roll back; serving a tracked product deducts stock. |
+| `reservation.save` | `tableId`, offset-bearing `startsAt`, `endsAt`, `customerName`, `customerPhone` | `id`, active `customerId`, `guestCount` default `1` (integer, >=1), `status` default `PENDING`, `notes` | `RESERVATIONS_MANAGE` | `{ reservationId }`; timestamps require explicit offset; end must be future and after start; overlapping active booking/session rejected. |
+| `reservation.status` | `id`, `status` | — | `RESERVATIONS_MANAGE` | `{ reservationId }`; transition accepts `CONFIRMED`, `CANCELLED`, or `NO_SHOW`; terminal/SEATED rows cannot be reopened. |
+| `session.start` | `tableId` | `customerId`, `notes` | `SESSIONS_MANAGE` | `{ sessionId }`; rejects maintenance, another active session, or conflicting active booking; snapshots active rate. |
+| `reservation.seat` | `reservationId` | `notes` | `SESSIONS_MANAGE` | `{ sessionId }`; reservation must be CONFIRMED; rejects concurrent active session/booking; reservation becomes SEATED. |
+| `session.pause` | `sessionId` | `reason` | `SESSIONS_MANAGE` plus role `ADMIN`/`MANAGER`/`CASHIER` | `{ sessionId }`; only ACTIVE session with open segment can pause. |
+| `session.resume` | `sessionId` | — | `SESSIONS_MANAGE` plus role `ADMIN`/`MANAGER`/`CASHIER` | `{ sessionId }`; only PAUSED session can resume; closes open pause. |
+| `session.transfer` | `sessionId`, `toTableId` | `reason` | `SESSIONS_MANAGE` plus role `ADMIN`/`MANAGER`/`CASHIER` | `{ sessionId }`; session must be ACTIVE/PAUSED; target must differ and be available; closes old segment and creates a new rate segment; transfer resumes a paused session. |
+| `session.end` | `sessionId` | `confirmPendingOrders` (boolean) | `SESSIONS_MANAGE` | `{ tableAmount, pendingOrders }`; requires explicit `confirmPendingOrders: true` when pending/preparing items exist. |
+| `category.save` | `code`, `name` | `id`, `sortOrder` default `0` | `PRODUCTS_MANAGE` | `{ id }`; code/name uniqueness is checked. |
+| `category.delete` | `id` | — | `PRODUCTS_MANAGE` | `{ id }`; soft-deactivates only when no active product uses the category. |
+| `product.save` | `code`, `name`, `salePrice` (nonnegative integer) | `id`, `categoryId`, `kind` default `PRODUCT` (`PRODUCT` or `SERVICE` only), `unit` default `phần`, `costPrice` and `minStock` default `0`, `trackStock` default true | `PRODUCTS_MANAGE` | `{ id }`; `trackStock` must be boolean; service disables stock tracking; kind/tracking cannot change when existing stock or order history prevents it. |
+| `product.delete` | `id` | — | `PRODUCTS_MANAGE` | `{ id }`; soft-deactivates product. |
+| `order.add` | `sessionId`, `productId`, positive numeric `quantity` | `notes` | `ORDERS_MANAGE` | `{ itemId, orderId }`; session active/paused and unbilled; product active; checks available stock and prevents a second open order. |
+| `order.item.update` | `itemId`, positive numeric `quantity` | `notes` | `ORDERS_MANAGE` | `{ itemId }`; item/order must remain open and unbilled; served/cancelled item cannot be edited; checks stock. |
+| `order.item.status` | `itemId`, `status` | — | `ORDERS_MANAGE` | `{ itemId }` or `{ itemId, unchanged: true }`; allowed transitions PENDING→PREPARING/SERVED/CANCELLED and PREPARING→SERVED/CANCELLED; serving tracked stock decrements stock and writes inventory ledger. |
 
 ### Customers, memberships, invoices, inventory, and shifts
 
@@ -125,6 +128,8 @@ Provider for all rows: `POST /api/action` in `app/api/action/route.ts`. Consumer
 | `shift.close` | None enforced by `required()` | `actualCash` defaults `0`, `notes` | `SHIFTS_MANAGE` | `{ expectedCash, difference }`; requires current cashier open shift; actual >= 0; expected cash computed from movements. |
 
 ## 5. Examples based on current handlers
+
+Unless a handler/helper sets another status, `AppError` validations described in the action rows use the default HTTP 400 and `{ "error": "<message>" }` envelope. The delegated action modules explicitly use 404 for selected missing-record cases and 409 for uniqueness/state-change conflicts; those conditions are called out in the affected rows. Central authorization, origin, unsupported-action, unique/FK mapping, and unexpected-error statuses are listed above. These are source observations, not an approved error contract.
 
 Successful session start (IDs are generated at runtime):
 
@@ -150,7 +155,7 @@ Business failures return the shared error envelope; the exact status/message dep
 
 ### Request payload examples for every dispatched action
 
-These are illustrative payloads made from fields the current handlers read. Placeholder strings are not real identifiers or credentials. Unless the action table lists a result object, the current success response is `{ "ok": true, "data": null }`.
+These are illustrative payloads made from fields the current handlers read. Placeholder strings are not real identifiers or credentials. The action table distinguishes the current data result: direct legacy switch cases generally return `null`; delegated operation modules generally return an entity/result object.
 
 ```json
 {"action":"profile.update","payload":{"fullName":"<name>"}}
@@ -165,7 +170,7 @@ These are illustrative payloads made from fields the current handlers read. Plac
 {"action":"table.save","payload":{"code":"T01","name":"<name>","areaId":"<area-id>","tableTypeId":"<type-id>"}}
 {"action":"table.delete","payload":{"id":"<table-id>"}}
 {"action":"table.status","payload":{"id":"<table-id>","status":"MAINTENANCE"}}
-{"action":"price.save","payload":{"tableTypeId":"<type-id>","name":"<name>"}}
+{"action":"price.save","payload":{"tableTypeId":"<type-id>","name":"<name>","hourlyRate":100000}}
 {"action":"price.delete","payload":{"id":"<price-rule-id>"}}
 {"action":"reservation.save","payload":{"tableId":"<table-id>","startsAt":"<ISO-date-time>","endsAt":"<ISO-date-time>","customerName":"<name>","customerPhone":"<phone>"}}
 {"action":"reservation.status","payload":{"id":"<reservation-id>","status":"CONFIRMED"}}
@@ -176,7 +181,8 @@ These are illustrative payloads made from fields the current handlers read. Plac
 {"action":"session.transfer","payload":{"sessionId":"<session-id>","toTableId":"<table-id>"}}
 {"action":"session.end","payload":{"sessionId":"<session-id>"}}
 {"action":"category.save","payload":{"code":"CAT1","name":"<name>"}}
-{"action":"product.save","payload":{"code":"PRD1","name":"<name>"}}
+{"action":"category.delete","payload":{"id":"<category-id>"}}
+{"action":"product.save","payload":{"code":"PRD1","name":"<name>","salePrice":10000}}
 {"action":"product.delete","payload":{"id":"<product-id>"}}
 {"action":"order.add","payload":{"sessionId":"<session-id>","productId":"<product-id>","quantity":1}}
 {"action":"order.item.update","payload":{"itemId":"<item-id>","quantity":2}}
@@ -198,9 +204,21 @@ These are illustrative payloads made from fields the current handlers read. Plac
 
 ## 6. Review gaps / contract decisions
 
+### Provider/consumer confirmation matrix
+
+| Participant / boundary | Evidence and named owner | Confirmation requested | Current status |
+| --- | --- | --- | --- |
+| Action API provider: `app/api/action/route.ts`, `lib/operations.ts`, action modules | Implementation paths verified; human provider/module owners `UNVERIFIED` because tracker/maintainer mapping is absent | Confirm 42 action names, payload validation, permissions/role checks, results, errors, and side effects against current source | `PENDING PROVIDER OWNER IDENTIFICATION + CONFIRMATION` |
+| Main UI consumer: `components/bidaflow-app.tsx` | Generic caller, direct UI handlers, and connector operation adapters observed; human owner `UNVERIFIED` | Confirm the consumer payloads/results/error behavior remain compatible with the proposed source inventory | `PENDING CONSUMER OWNER IDENTIFICATION + CONFIRMATION` |
+| Persistence/permission boundary: `db/schema.ts`, `lib/server.ts`, `/api/app` | Enum/schema/auth/read behavior observed in source; human owners `UNVERIFIED` | Confirm enum, permission, response-shape, and persistence assumptions relevant to action contracts | `PENDING OWNER IDENTIFICATION + CONFIRMATION` |
+| Independent BF-PLAT-01 reviewer: Bùi Vạn Khải | Reviewer assignment supplied by task authorization; no GitHub review submitted yet | Check every action row, source pointer, error/result claim, and open mismatch | `REVIEW-PENDING` |
+| PM / SRS and task-tracker custodian | PM owns task per authorization; authoritative SRS/tracker not available | Map actions to approved Use Cases, acceptance, provider/consumer task owners, and task status | `PENDING SOURCE DELIVERY + PM MAPPING` |
+
+The contract remains `CODE-OBSERVED DRAFT`; it must not be called frozen until relevant provider and consumer owners are identified and their confirmations are recorded. A reviewer assignment, PM authorization, PR merge, or code observation does not substitute for those confirmations.
+
 - Bùi Vạn Khải should review every action name, payload/default, response, permission, and source pointer against the current code; re-check after dispatcher/schema edits.
 - PM should provide the task tracker and official SRS to map human module owner/provider, consumer task, and UC/acceptance requirement without inference.
 - `invoice.pay.method` is required by the handler and CASH has a special rule. The route itself does not validate that method against the enum declared in `db/schema.ts`; decide whether to add explicit validation in a future implementation task.
-- The dispatcher casts incoming JSON instead of applying a whole-request runtime schema. Decide whether type-specific validation belongs in a later implementation task.
+- The dispatcher validates basic top-level shape; there is no single declarative schema covering every action. Delegated operations use typed field helpers, while remaining switch cases retain per-case validation. Decide whether a shared schema/validation convention belongs in a later implementation task.
 - Proposed error code/envelope needs consumer review and a compatibility/version decision. No code change is included here.
-- Shared responsibility for `app/api/action/route.ts`, `lib/server.ts`, `db/schema.ts`, and migrations is pending the tracker/owner map.
+- Shared responsibility for `app/api/action/route.ts`, `lib/operations.ts`, action modules, `lib/server.ts`, `db/schema.ts`, and migrations is pending the tracker/owner map.
